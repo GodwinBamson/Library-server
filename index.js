@@ -513,12 +513,13 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
+
 import connectDB from './config/db.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 import authRoutes from './routes/authRoutes.js';
 import bookRoutes from './routes/bookRoutes.js';
 import borrowRoutes from './routes/borrowRoutes.js';
-import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -528,7 +529,9 @@ connectDB();
 
 const app = express();
 
-// CORS configuration - FIXED for production
+// --------------------
+// CORS configuration
+// --------------------
 const allowedOrigins = [
     'https://frontend-libraryapp.onrender.com',
     'http://localhost:5173',
@@ -537,12 +540,12 @@ const allowedOrigins = [
 ];
 
 const corsOptions = {
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps, curl, etc)
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    origin: (origin, callback) => {
+        // Allow requests with no origin (e.g., Postman, mobile apps)
+        if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            console.log('Blocked origin:', origin);
+            console.log('🚫 Blocked origin:', origin);
             callback(new Error('Not allowed by CORS'));
         }
     },
@@ -552,16 +555,21 @@ const corsOptions = {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
+// Enable CORS
 app.use(cors(corsOptions));
 
 // Handle preflight requests
 app.options('*', cors(corsOptions));
 
+// --------------------
 // Body parsers
+// --------------------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging middleware
+// --------------------
+// Request logging
+// --------------------
 app.use((req, res, next) => {
     console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.url}`);
     console.log('Origin:', req.headers.origin);
@@ -569,16 +577,17 @@ app.use((req, res, next) => {
     next();
 });
 
-// Create uploads directory if in development
+// --------------------
+// Development uploads directory
+// --------------------
 if (process.env.NODE_ENV === 'development') {
     const uploadDir = path.join(__dirname, 'uploads/pdfs');
-    
+
     if (!fs.existsSync(uploadDir)) {
         fs.mkdirSync(uploadDir, { recursive: true });
         console.log('📁 Created uploads directory for development');
     }
-    
-    // Test write permissions
+
     try {
         const testFile = path.join(uploadDir, `test-${Date.now()}.txt`);
         fs.writeFileSync(testFile, 'test');
@@ -587,20 +596,24 @@ if (process.env.NODE_ENV === 'development') {
     } catch (err) {
         console.error('❌ Upload directory is NOT writable:', err.message);
     }
-    
-    // Serve static files from uploads directory
+
+    // Serve static files
     app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 }
 
+// --------------------
 // Routes
+// --------------------
 app.use('/api/auth', authRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/borrow', borrowRoutes);
 
-// Health check endpoint
+// --------------------
+// Health check
+// --------------------
 app.get('/health', (req, res) => {
-    res.status(200).json({ 
-        status: 'OK', 
+    res.status(200).json({
+        status: 'OK',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV,
         message: 'Server is running'
@@ -609,17 +622,22 @@ app.get('/health', (req, res) => {
 
 // Test endpoint
 app.get('/api/test', (req, res) => {
-    res.json({ 
+    res.json({
         message: 'API is working!',
         environment: process.env.NODE_ENV,
         timestamp: new Date().toISOString()
     });
 });
 
-// Error handling middleware
+// --------------------
+// Error handling
+// --------------------
 app.use(notFound);
 app.use(errorHandler);
 
+// --------------------
+// Start server
+// --------------------
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
@@ -628,5 +646,8 @@ app.listen(PORT, () => {
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
     console.log(`🔗 Allowed origins:`, allowedOrigins);
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`📁 Upload directory: ${path.join(__dirname, 'uploads/pdfs')}`);
+    }
     console.log('====================================\n');
 });
