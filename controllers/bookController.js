@@ -587,16 +587,36 @@ const deleteFile = async (filePath) => {
 };
 
 // Helper function to generate PDF URL
+// const getPdfUrl = (book) => {
+//     if (!book.pdfFile) return null;
+    
+//     if (process.env.NODE_ENV === 'production') {
+//         // In production, return the Cloudinary URL directly
+//         return book.pdfFile;
+//     } else {
+//         // In development, return the local endpoint
+//         return `${process.env.BASE_URL || 'http://localhost:5000'}/api/books/pdf/${book._id}`;
+//     }
+// };
+
+
+// Helper function to generate PDF URL
 const getPdfUrl = (book) => {
     if (!book.pdfFile) return null;
     
-    if (process.env.NODE_ENV === 'production') {
-        // In production, return the Cloudinary URL directly
-        return book.pdfFile;
-    } else {
-        // In development, return the local endpoint
+    // If it's already a Cloudinary URL (from production), use it directly
+    if (book.pdfFile.includes('cloudinary.com')) {
+        // Remove version parameter to ensure consistent URLs
+        return book.pdfFile.replace(/\/v\d+\//, '/');
+    }
+    
+    // For local development with server running
+    if (process.env.NODE_ENV === 'development') {
         return `${process.env.BASE_URL || 'http://localhost:5000'}/api/books/pdf/${book._id}`;
     }
+    
+    // Fallback: try to use the stored path
+    return book.pdfFile;
 };
 
 // Helper function to generate PDF URL
