@@ -587,12 +587,32 @@ const deleteFile = async (filePath) => {
 };
 
 // Helper function to generate PDF URL
+// const getPdfUrl = (book) => {
+//     if (!book.pdfFile) return null;
+    
+//     if (process.env.NODE_ENV === 'production') {
+//         // In production, return the Cloudinary URL directly
+//         return book.pdfFile;
+//     } else {
+//         // In development, return the local endpoint
+//         return `${process.env.BASE_URL || 'http://localhost:5000'}/api/books/pdf/${book._id}`;
+//     }
+// };
+
+// Helper function to generate PDF URL
 const getPdfUrl = (book) => {
     if (!book.pdfFile) return null;
     
-    if (process.env.NODE_ENV === 'production') {
-        // In production, return the Cloudinary URL directly
-        return book.pdfFile;
+    // Check if we're in production by looking at NODE_ENV
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (isProduction) {
+        // In production, use the Cloudinary URL directly
+        // Add a cache-busting parameter to prevent caching issues
+        const cloudinaryUrl = book.pdfFile;
+        // Remove version parameter if you want cleaner URLs
+        // const cleanUrl = cloudinaryUrl.replace(/\/v\d+\//, '/');
+        return cloudinaryUrl;
     } else {
         // In development, return the local endpoint
         return `${process.env.BASE_URL || 'http://localhost:5000'}/api/books/pdf/${book._id}`;
