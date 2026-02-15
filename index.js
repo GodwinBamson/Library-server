@@ -400,6 +400,114 @@
 
 
 
+// import express from 'express';
+// import cors from 'cors';
+// import dotenv from 'dotenv';
+// import path from 'path';
+// import { fileURLToPath } from 'url';
+// import connectDB from './config/db.js';
+// import { notFound, errorHandler } from './middleware/errorMiddleware.js';
+// import authRoutes from './routes/authRoutes.js';
+// import bookRoutes from './routes/bookRoutes.js';
+// import borrowRoutes from './routes/borrowRoutes.js';
+// import fs from 'fs';
+
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+
+// dotenv.config();
+// connectDB();
+
+// const app = express();
+
+// // CORS configuration for production
+// const corsOptions = {
+//     origin: process.env.NODE_ENV === 'production' 
+//         ? process.env.CLIENT_URL 
+//         : 'http://localhost:5173',
+//     credentials: true,
+//     optionsSuccessStatus: 200
+// };
+
+// app.use(cors(corsOptions));
+
+// // Body parsers
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
+
+// // Create uploads directory if in development
+// if (process.env.NODE_ENV === 'development') {
+//     const uploadDir = path.join(__dirname, 'uploads/pdfs');
+    
+//     // Create directory if it doesn't exist
+//     if (!fs.existsSync(uploadDir)) {
+//         fs.mkdirSync(uploadDir, { recursive: true });
+//         console.log('📁 Created uploads directory for development');
+//     } else {
+//         console.log('📁 Uploads directory already exists');
+//     }
+    
+//     // Test write permissions
+//     try {
+//         const testFile = path.join(uploadDir, `test-${Date.now()}.txt`);
+//         fs.writeFileSync(testFile, 'test');
+//         console.log('✅ Upload directory is writable');
+//         fs.unlinkSync(testFile);
+//         console.log('✅ Test file deleted successfully');
+//     } catch (err) {
+//         console.error('❌ Upload directory is NOT writable:', err.message);
+//         console.error('   Please check permissions for:', uploadDir);
+//     }
+    
+//     // Serve static files from uploads directory
+//     app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+//     console.log('📂 Static files will be served from /uploads');
+// }
+
+// // Routes
+// app.use('/api/auth', authRoutes);
+// app.use('/api/books', bookRoutes);
+// app.use('/api/borrow', borrowRoutes);
+
+// // Health check endpoint for Render
+// app.get('/health', (req, res) => {
+//     res.status(200).json({ 
+//         status: 'OK', 
+//         timestamp: new Date().toISOString(),
+//         environment: process.env.NODE_ENV
+//     });
+// });
+
+// // Test route
+// app.get('/api/test', (req, res) => {
+//     res.json({ 
+//         message: 'API is working!',
+//         environment: process.env.NODE_ENV,
+//         timestamp: new Date().toISOString()
+//     });
+// });
+
+// // Error handling middleware
+// app.use(notFound);
+// app.use(errorHandler);
+
+// const PORT = process.env.PORT || 5000;
+
+// app.listen(PORT, () => {
+//     console.log('\n========== SERVER STARTED ==========');
+//     console.log(`✅ Server running on port ${PORT}`);
+//     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+//     console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
+    
+//     if (process.env.NODE_ENV === 'development') {
+//         console.log(`📁 Upload directory: ${path.join(__dirname, 'uploads/pdfs')}`);
+//     }
+    
+//     console.log('====================================\n');
+// });
+
+
+
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -420,31 +528,54 @@ connectDB();
 
 const app = express();
 
-// CORS configuration for production
+// CORS configuration - FIXED for production
+const allowedOrigins = [
+    'https://frontend-libraryapp.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:5000',
+    'https://library-server-5rpq.onrender.com'
+];
+
 const corsOptions = {
-    origin: process.env.NODE_ENV === 'production' 
-        ? process.env.CLIENT_URL 
-        : 'http://localhost:5173',
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps, curl, etc)
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('Blocked origin:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
     credentials: true,
-    optionsSuccessStatus: 200
+    optionsSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 
 app.use(cors(corsOptions));
+
+// Handle preflight requests
+app.options('*', cors(corsOptions));
 
 // Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Request logging middleware
+app.use((req, res, next) => {
+    console.log(`\n[${new Date().toISOString()}] ${req.method} ${req.url}`);
+    console.log('Origin:', req.headers.origin);
+    console.log('Headers:', JSON.stringify(req.headers, null, 2));
+    next();
+});
+
 // Create uploads directory if in development
 if (process.env.NODE_ENV === 'development') {
     const uploadDir = path.join(__dirname, 'uploads/pdfs');
     
-    // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
         fs.mkdirSync(uploadDir, { recursive: true });
         console.log('📁 Created uploads directory for development');
-    } else {
-        console.log('📁 Uploads directory already exists');
     }
     
     // Test write permissions
@@ -453,15 +584,12 @@ if (process.env.NODE_ENV === 'development') {
         fs.writeFileSync(testFile, 'test');
         console.log('✅ Upload directory is writable');
         fs.unlinkSync(testFile);
-        console.log('✅ Test file deleted successfully');
     } catch (err) {
         console.error('❌ Upload directory is NOT writable:', err.message);
-        console.error('   Please check permissions for:', uploadDir);
     }
     
     // Serve static files from uploads directory
     app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-    console.log('📂 Static files will be served from /uploads');
 }
 
 // Routes
@@ -469,16 +597,17 @@ app.use('/api/auth', authRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/borrow', borrowRoutes);
 
-// Health check endpoint for Render
+// Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV
+        environment: process.env.NODE_ENV,
+        message: 'Server is running'
     });
 });
 
-// Test route
+// Test endpoint
 app.get('/api/test', (req, res) => {
     res.json({ 
         message: 'API is working!',
@@ -498,10 +627,6 @@ app.listen(PORT, () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🔗 Client URL: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
-    
-    if (process.env.NODE_ENV === 'development') {
-        console.log(`📁 Upload directory: ${path.join(__dirname, 'uploads/pdfs')}`);
-    }
-    
+    console.log(`🔗 Allowed origins:`, allowedOrigins);
     console.log('====================================\n');
 });
