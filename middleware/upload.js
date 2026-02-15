@@ -336,12 +336,12 @@ if (process.env.NODE_ENV === 'production') {
                 return 'pdf-' + uniqueSuffix;
             },
             format: async (req, file) => 'pdf',
-            access_mode: 'public', // Add this to make files publicly accessible
+            access_mode: 'public', // Make files publicly accessible
             use_filename: true,
             unique_filename: true
         },
     });
-    console.log('☁️ Using Cloudinary storage for production');
+    console.log('☁️ Using Cloudinary storage for production with public access');
 } else {
     // Local storage for development
     const uploadDir = path.join(__dirname, '../uploads/pdfs');
