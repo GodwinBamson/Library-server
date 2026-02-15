@@ -35,7 +35,7 @@ const corsOptions = {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      console.log("🚫 Blocked origin:", origin);
+      console.log(" Blocked origin:", origin);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -75,16 +75,16 @@ if (process.env.NODE_ENV === "development") {
 
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
-    console.log("📁 Created uploads directory for development");
+    console.log(" Created uploads directory for development");
   }
 
   try {
     const testFile = path.join(uploadDir, `test-${Date.now()}.txt`);
     fs.writeFileSync(testFile, "test");
-    console.log("✅ Upload directory is writable");
+    console.log(" Upload directory is writable");
     fs.unlinkSync(testFile);
   } catch (err) {
-    console.error("❌ Upload directory is NOT writable:", err.message);
+    console.error(" Upload directory is NOT writable:", err.message);
   }
 
   // Serve static files
@@ -132,14 +132,14 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log("\n========== SERVER STARTED ==========");
-  console.log(`✅ Server running on port ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(` Server running on port ${PORT}`);
+  console.log(` Environment: ${process.env.NODE_ENV || "development"}`);
   console.log(
     `🔗 Client URL: ${process.env.CLIENT_URL || "http://localhost:5173"}`,
   );
-  console.log(`🔗 Allowed origins:`, allowedOrigins);
+  console.log(` Allowed origins:`, allowedOrigins);
   if (process.env.NODE_ENV === "development") {
-    console.log(`📁 Upload directory: ${path.join(__dirname, "uploads/pdfs")}`);
+    console.log(` Upload directory: ${path.join(__dirname, "uploads/pdfs")}`);
   }
   console.log("====================================\n");
 });
