@@ -587,37 +587,20 @@ const deleteFile = async (filePath) => {
 };
 
 // Helper function to generate PDF URL
-// const getPdfUrl = (book) => {
-//     if (!book.pdfFile) return null;
-    
-//     if (process.env.NODE_ENV === 'production') {
-//         // In production, return the Cloudinary URL directly
-//         return book.pdfFile;
-//     } else {
-//         // In development, return the local endpoint
-//         return `${process.env.BASE_URL || 'http://localhost:5000'}/api/books/pdf/${book._id}`;
-//     }
-// };
-
-// Helper function to generate PDF URL
 const getPdfUrl = (book) => {
     if (!book.pdfFile) return null;
     
-    // Check if we're in production by looking at NODE_ENV
-    const isProduction = process.env.NODE_ENV === 'production';
-    
-    if (isProduction) {
-        // In production, use the Cloudinary URL directly
-        // Add a cache-busting parameter to prevent caching issues
-        const cloudinaryUrl = book.pdfFile;
-        // Remove version parameter if you want cleaner URLs
-        // const cleanUrl = cloudinaryUrl.replace(/\/v\d+\//, '/');
-        return cloudinaryUrl;
+    if (process.env.NODE_ENV === 'production') {
+        // In production, return the Cloudinary URL directly
+        return book.pdfFile;
     } else {
         // In development, return the local endpoint
         return `${process.env.BASE_URL || 'http://localhost:5000'}/api/books/pdf/${book._id}`;
     }
 };
+
+// Helper function to generate PDF URL
+
 
 export const getAllBooks = async (req, res) => {
     try {
@@ -823,46 +806,6 @@ export const deleteBook = async (req, res) => {
     }
 };
 
-// export const servePdf = async (req, res) => {
-//     try {
-//         const book = await Book.findById(req.params.id);
-//         if (!book || !book.pdfFile) {
-//             return res.status(404).json({ message: 'PDF not found' });
-//         }
-
-//         // Disable caching
-//         res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-//         res.setHeader('Pragma', 'no-cache');
-//         res.setHeader('Expires', '0');
-
-//         if (process.env.NODE_ENV === 'production') {
-//             // In production, redirect to Cloudinary URL
-//             console.log('🔄 Redirecting to Cloudinary PDF:', book.pdfFile);
-            
-//             // Add cache busting parameter to Cloudinary URL
-//             const cloudinaryUrl = new URL(book.pdfFile);
-//             cloudinaryUrl.searchParams.set('_t', Date.now().toString());
-            
-//             return res.redirect(302, cloudinaryUrl.toString());
-//         } else {
-//             // Development: serve local file
-//             const pdfPath = path.join(__dirname, '..', 'uploads', 'pdfs', book.pdfFile);
-            
-//             if (!fs.existsSync(pdfPath)) {
-//                 return res.status(404).json({ message: 'PDF file not found on server' });
-//             }
-
-//             res.setHeader('Content-Type', 'application/pdf');
-//             res.setHeader('Content-Disposition', `inline; filename="${book.pdfFilename || book.title}.pdf"`);
-            
-//             const fileStream = fs.createReadStream(pdfPath);
-//             fileStream.pipe(res);
-//         }
-//     } catch (error) {
-//         console.error('❌ Error serving PDF:', error);
-//         res.status(500).json({ message: error.message });
-//     }
-// };
 
 
 
