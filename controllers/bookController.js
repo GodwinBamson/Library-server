@@ -373,352 +373,6 @@
 
 
 
-
-
-// import Book from "../models/Book.js";
-// import path from "path";
-// import { fileURLToPath } from "url";
-// import fs from "fs";
-// import { v2 as cloudinary } from "cloudinary";
-// import dotenv from "dotenv";
-// import mongoose from "mongoose";
-
-// dotenv.config();
-
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-
-// // Configure Cloudinary
-// cloudinary.config({
-//   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-//   api_key: process.env.CLOUDINARY_API_KEY,
-//   api_secret: process.env.CLOUDINARY_API_SECRET,
-// });
-
-// // Helper function to delete file from storage
-// const deleteFile = async (filePath) => {
-//   if (process.env.NODE_ENV === "production") {
-//     if (filePath && filePath.includes("cloudinary")) {
-//       try {
-//         const urlParts = filePath.split("/");
-//         const filename = urlParts[urlParts.length - 1];
-//         const publicId = `library-books/${filename.split(".")[0]}`;
-//         await cloudinary.uploader.destroy(publicId, { resource_type: "raw" });
-//         console.log("✅ Deleted file from Cloudinary:", publicId);
-//       } catch (error) {
-//         console.log("⚠️ Could not delete from Cloudinary:", error.message);
-//       }
-//     }
-//   } else {
-//     if (filePath) {
-//       const fullPath = path.join(
-//         __dirname,
-//         "..",
-//         "uploads",
-//         "pdfs",
-//         path.basename(filePath),
-//       );
-//       try {
-//         if (fs.existsSync(fullPath)) {
-//           fs.unlinkSync(fullPath);
-//           console.log("✅ Deleted local file:", fullPath);
-//         }
-//       } catch (err) {
-//         console.log("⚠️ Could not delete local file:", err.message);
-//       }
-//     }
-//   }
-// };
-
-// // Helper function to generate PDF URL
-// const getPdfUrl = (book) => {
-//   if (!book.pdfFile) return null;
-
-//   // If it's a Cloudinary URL (production), use it directly
-//   if (book.pdfFile.includes("cloudinary.com")) {
-//     return book.pdfFile.replace(/\/v\d+\//, "/");
-//   }
-
-//   // For local development, use ID-based endpoint
-//   return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
-// };
-
-// export const getAllBooks = async (req, res) => {
-//   try {
-//     const { category, search } = req.query;
-//     let query = {};
-
-//     if (category) {
-//       query.category = category;
-//     }
-
-//     if (search) {
-//       query.$or = [
-//         { title: { $regex: search, $options: "i" } },
-//         { author: { $regex: search, $options: "i" } },
-//         { isbn: { $regex: search, $options: "i" } },
-//       ];
-//     }
-
-//     const books = await Book.find(query).sort({ createdAt: -1 });
-
-//     const booksWithPdfUrl = books.map((book) => {
-//       const bookObj = book.toObject();
-//       bookObj.pdfUrl = getPdfUrl(book);
-//       return bookObj;
-//     });
-
-//     res.json(booksWithPdfUrl);
-//   } catch (error) {
-//     console.error("❌ Error in getAllBooks:", error);
-//     res.status(500).json({ message: error.message });
-//   }
-// };
-
-// export const getBookById = async (req, res) => {
-//   try {
-//     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-//       return res.status(400).json({ message: "Invalid book ID format" });
-//     }
-
-//     const book = await Book.findById(req.params.id);
-//     if (!book) {
-//       return res.status(404).json({ message: "Book not found" });
-//     }
-
-//     const bookObj = book.toObject();
-//     bookObj.pdfUrl = getPdfUrl(book);
-
-//     res.json(bookObj);
-//   } catch (error) {
-//     console.error("❌ Error in getBookById:", error);
-//     res.status(500).json({ message: error.message });
-//   }
-// };
-
-// export const createBook = async (req, res) => {
-//   try {
-//     console.log("\n========== CREATE BOOK ==========");
-
-//     const requiredFields = [
-//       "title",
-//       "author",
-//       "isbn",
-//       "description",
-//       "category",
-//       "publishedYear",
-//       "totalCopies",
-//     ];
-//     for (const field of requiredFields) {
-//       if (!req.body[field]) {
-//         return res.status(400).json({ message: `${field} is required` });
-//       }
-//     }
-
-//     const bookData = {
-//       title: req.body.title,
-//       author: req.body.author,
-//       isbn: req.body.isbn,
-//       description: req.body.description,
-//       category: req.body.category,
-//       publishedYear: parseInt(req.body.publishedYear),
-//       publisher: req.body.publisher || "",
-//       totalCopies: parseInt(req.body.totalCopies),
-//       availableCopies: parseInt(req.body.totalCopies),
-//       coverImage: req.body.coverImage || "",
-//     };
-
-//     if (req.file) {
-//       if (process.env.NODE_ENV === "production") {
-//         bookData.pdfFile = req.file.path;
-//         bookData.pdfFilename = req.file.originalname;
-//         console.log("📄 PDF saved to Cloudinary:", req.file.path);
-//       } else {
-//         bookData.pdfFile = req.file.filename;
-//         bookData.pdfFilename = req.file.originalname;
-//         console.log("📄 PDF saved locally as:", req.file.filename);
-//       }
-//     }
-
-//     const book = new Book(bookData);
-//     await book.save();
-
-//     const bookObj = book.toObject();
-//     bookObj.pdfUrl = getPdfUrl(book);
-
-//     res.status(201).json({
-//       success: true,
-//       message: "Book created successfully",
-//       book: bookObj,
-//     });
-//   } catch (error) {
-//     console.error("❌ Error creating book:", error);
-
-//     if (error.code === 11000) {
-//       return res.status(400).json({ message: "ISBN already exists" });
-//     }
-
-//     res.status(400).json({ message: error.message });
-//   }
-// };
-
-// export const updateBook = async (req, res) => {
-//   try {
-//     console.log("\n========== UPDATE BOOK ==========");
-
-//     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-//       return res.status(400).json({ message: "Invalid book ID format" });
-//     }
-
-//     const oldBook = await Book.findById(req.params.id);
-//     if (!oldBook) {
-//       return res.status(404).json({ message: "Book not found" });
-//     }
-
-//     const updateData = {
-//       title: req.body.title,
-//       author: req.body.author,
-//       isbn: req.body.isbn,
-//       description: req.body.description,
-//       category: req.body.category,
-//       publishedYear: parseInt(req.body.publishedYear),
-//       publisher: req.body.publisher || "",
-//       totalCopies: parseInt(req.body.totalCopies),
-//       availableCopies: parseInt(req.body.totalCopies),
-//       coverImage: req.body.coverImage || "",
-//     };
-
-//     if (req.file) {
-//       if (oldBook.pdfFile) {
-//         await deleteFile(oldBook.pdfFile);
-//       }
-
-//       if (process.env.NODE_ENV === "production") {
-//         updateData.pdfFile = req.file.path;
-//         updateData.pdfFilename = req.file.originalname;
-//       } else {
-//         updateData.pdfFile = req.file.filename;
-//         updateData.pdfFilename = req.file.originalname;
-//       }
-//       console.log("📄 New PDF saved");
-//     }
-
-//     const book = await Book.findByIdAndUpdate(req.params.id, updateData, {
-//       new: true,
-//       runValidators: true,
-//     });
-
-//     const bookObj = book.toObject();
-//     bookObj.pdfUrl = getPdfUrl(book);
-
-//     res.json({
-//       success: true,
-//       message: "Book updated successfully",
-//       book: bookObj,
-//     });
-//   } catch (error) {
-//     console.error("❌ Error updating book:", error);
-
-//     if (error.code === 11000) {
-//       return res.status(400).json({ message: "ISBN already exists" });
-//     }
-
-//     res.status(400).json({ message: error.message });
-//   }
-// };
-
-// export const deleteBook = async (req, res) => {
-//   try {
-//     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-//       return res.status(400).json({ message: "Invalid book ID format" });
-//     }
-
-//     const book = await Book.findById(req.params.id);
-//     if (!book) {
-//       return res.status(404).json({ message: "Book not found" });
-//     }
-
-//     if (book.pdfFile) {
-//       await deleteFile(book.pdfFile);
-//     }
-
-//     await Book.findByIdAndDelete(req.params.id);
-
-//     res.json({
-//       success: true,
-//       message: "Book deleted successfully",
-//     });
-//   } catch (error) {
-//     console.error("❌ Error deleting book:", error);
-//     res.status(500).json({ message: error.message });
-//   }
-// };
-
-// export const servePdf = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     console.log("📄 Looking for book with ID:", id);
-    
-//     // Validate if it's a valid MongoDB ID
-//     if (!mongoose.Types.ObjectId.isValid(id)) {
-//       return res.status(400).json({ message: "Invalid book ID format" });
-//     }
-    
-//     const book = await Book.findById(id);
-//     if (!book || !book.pdfFile) {
-//       return res.status(404).json({ message: "PDF not found" });
-//     }
-
-//     console.log("✅ Found book:", book.title);
-//     console.log("📁 PDF file:", book.pdfFile);
-
-//     // Set proper headers
-//     res.setHeader("Content-Type", "application/pdf");
-//     res.setHeader(
-//       "Content-Disposition",
-//       `inline; filename="${book.pdfFilename || book.title}.pdf"`,
-//     );
-//     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-//     res.setHeader("Pragma", "no-cache");
-//     res.setHeader("Expires", "0");
-//     res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-//     res.setHeader("Access-Control-Allow-Credentials", "true");
-
-//     if (process.env.NODE_ENV === "production") {
-//       // For production, redirect to Cloudinary URL
-//       const cloudinaryUrl = book.pdfFile.replace(/\/v\d+\//, "/");
-//       console.log("➡️ Redirecting to:", cloudinaryUrl);
-//       return res.redirect(302, cloudinaryUrl);
-//     } else {
-//       // Development: serve local file
-//       const pdfPath = path.join(
-//         __dirname,
-//         "..",
-//         "uploads",
-//         "pdfs",
-//         book.pdfFile,
-//       );
-
-//       console.log("📁 Looking for file at:", pdfPath);
-
-//       if (!fs.existsSync(pdfPath)) {
-//         console.log("❌ File not found at path:", pdfPath);
-//         return res.status(404).json({ message: "PDF file not found on server" });
-//       }
-
-//       const fileStream = fs.createReadStream(pdfPath);
-//       fileStream.pipe(res);
-//     }
-//   } catch (error) {
-//     console.error("❌ Error serving PDF:", error);
-//     res.status(500).json({ message: error.message });
-//   }
-// };
-
-
-
-
-
 import Book from "../models/Book.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -778,10 +432,12 @@ const deleteFile = async (filePath) => {
 const getPdfUrl = (book) => {
   if (!book.pdfFile) return null;
 
+  // If it's a Cloudinary URL (production), use it directly
   if (book.pdfFile.includes("cloudinary.com")) {
     return book.pdfFile.replace(/\/v\d+\//, "/");
   }
 
+  // For local development, use ID-based endpoint
   return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
 };
 
@@ -1001,6 +657,7 @@ export const servePdf = async (req, res) => {
     const { id } = req.params;
     console.log("📄 Looking for book with ID:", id);
     
+    // Validate if it's a valid MongoDB ID
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid book ID format" });
     }
@@ -1011,40 +668,25 @@ export const servePdf = async (req, res) => {
     }
 
     console.log("✅ Found book:", book.title);
+    console.log("📁 PDF file:", book.pdfFile);
 
-    // Set headers to prevent download and force inline viewing
+    // Set proper headers
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `inline; filename="${book.pdfFilename || book.title}.pdf"` // 'inline' forces browser to display, not download
+      `inline; filename="${book.pdfFilename || book.title}.pdf"`,
     );
     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
     res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
     res.setHeader("Access-Control-Allow-Credentials", "true");
-    
-    // Additional security headers
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self';");
 
     if (process.env.NODE_ENV === "production") {
-      // For production, proxy through your server instead of redirecting
-      try {
-        const cloudinaryUrl = book.pdfFile.replace(/\/v\d+\//, "/");
-        console.log("📥 Fetching from Cloudinary:", cloudinaryUrl);
-        
-        const response = await fetch(cloudinaryUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch from Cloudinary: ${response.status}`);
-        }
-        
-        const pdfBuffer = await response.arrayBuffer();
-        res.send(Buffer.from(pdfBuffer));
-      } catch (error) {
-        console.error("❌ Error fetching from Cloudinary:", error);
-        res.status(500).json({ message: "Error loading PDF" });
-      }
+      // For production, redirect to Cloudinary URL
+      const cloudinaryUrl = book.pdfFile.replace(/\/v\d+\//, "/");
+      console.log("➡️ Redirecting to:", cloudinaryUrl);
+      return res.redirect(302, cloudinaryUrl);
     } else {
       // Development: serve local file
       const pdfPath = path.join(
@@ -1070,3 +712,7 @@ export const servePdf = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+
+
+
