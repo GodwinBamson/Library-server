@@ -438,46 +438,29 @@ const deleteFile = async (filePath) => {
 // Helper function to generate PDF URL
 
 // Helper function to generate PDF URL
-// const getPdfUrl = (book) => {
-//   if (!book.pdfFile) return null;
-
-//   // If it's already a Cloudinary URL (from production), use it directly
-//   if (book.pdfFile.includes("cloudinary.com")) {
-//     // Remove version parameter to ensure consistent URLs
-//     return book.pdfFile.replace(/\/v\d+\//, "/");
-//   }
-
-//   // For local development with server running
-//   if (process.env.NODE_ENV === "development") {
-//     return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
-//   }
-
-//   // Fallback: try to use the stored path
-//   return book.pdfFile;
-// };
-
-
-
-// Helper function to generate PDF URL
 const getPdfUrl = (book) => {
   if (!book.pdfFile) return null;
 
-  // If it's already a Cloudinary URL, clean it up and use it
+  // If it's already a Cloudinary URL (from production), use it directly
   if (book.pdfFile.includes("cloudinary.com")) {
+    // Remove version parameter to ensure consistent URLs
     return book.pdfFile.replace(/\/v\d+\//, "/");
   }
 
-  // In production, local files are invalid - return null
-  if (process.env.NODE_ENV === "production") {
-    console.warn(`Book ${book._id} has local file reference in production:`, book.pdfFile);
-    return null;
+  // For local development with server running
+  if (process.env.NODE_ENV === "development") {
+    return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
   }
 
-  // Development fallback
-  return `http://localhost:5000/api/books/pdf/${book._id}`;
+  // Fallback: try to use the stored path
+  return book.pdfFile;
 };
 
+
+
 // Helper function to generate PDF URL
+
+
 
 export const getAllBooks = async (req, res) => {
   try {
