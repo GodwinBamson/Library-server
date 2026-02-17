@@ -27,7 +27,6 @@
 
 
 
-
 import express from "express";
 import { uploadPDF } from "../middleware/upload.js";
 import {
@@ -42,15 +41,13 @@ import { auth, adminAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// Public routes (no auth required for viewing)
+// Public routes - NO AUTH REQUIRED
 router.get("/", getAllBooks);
 router.get("/:id", getBookById);
+router.get("/pdf/:id", servePdf);      // ✅ Public - uses book ID
+router.get("/:id/pdf", servePdf);      // ✅ Public - uses book ID
 
-// Make PDF endpoint public (since Cloudinary URLs are public anyway)
-router.get("/pdf/:id", servePdf); // Remove auth requirement
-router.get("/:id/pdf", servePdf); // Remove auth requirement
-
-// Admin only routes with file upload (keep these protected)
+// Admin only routes with file upload - AUTH REQUIRED
 router.post("/", auth, adminAuth, uploadPDF, createBook);
 router.put("/:id", auth, adminAuth, uploadPDF, updateBook);
 router.delete("/:id", auth, adminAuth, deleteBook);

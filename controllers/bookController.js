@@ -381,7 +381,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
-import jwt from "jsonwebtoken"; // Add this import at the top
+import mongoose from "mongoose";
 
 dotenv.config();
 
@@ -398,22 +398,18 @@ cloudinary.config({
 // Helper function to delete file from storage
 const deleteFile = async (filePath) => {
   if (process.env.NODE_ENV === "production") {
-    // Extract public_id from Cloudinary URL
     if (filePath && filePath.includes("cloudinary")) {
       try {
-        // Extract public_id from Cloudinary URL
-        // URL format: https://res.cloudinary.com/cloud_name/raw/upload/v123456/library-books/pdf-123456.pdf
         const urlParts = filePath.split("/");
         const filename = urlParts[urlParts.length - 1];
         const publicId = `library-books/${filename.split(".")[0]}`;
         await cloudinary.uploader.destroy(publicId, { resource_type: "raw" });
-        console.log(" Deleted file from Cloudinary:", publicId);
+        console.log("✅ Deleted file from Cloudinary:", publicId);
       } catch (error) {
-        console.log(" Could not delete from Cloudinary:", error.message);
+        console.log("⚠️ Could not delete from Cloudinary:", error.message);
       }
     }
   } else {
-    // Local file deletion
     if (filePath) {
       const fullPath = path.join(
         __dirname,
@@ -425,37 +421,27 @@ const deleteFile = async (filePath) => {
       try {
         if (fs.existsSync(fullPath)) {
           fs.unlinkSync(fullPath);
-          console.log(" Deleted local file:", fullPath);
+          console.log("✅ Deleted local file:", fullPath);
         }
       } catch (err) {
-        console.log(" Could not delete local file:", err.message);
+        console.log("⚠️ Could not delete local file:", err.message);
       }
     }
   }
 };
 
 // Helper function to generate PDF URL
-
-// Helper function to generate PDF URL
 const getPdfUrl = (book) => {
   if (!book.pdfFile) return null;
 
-  // If it's already a Cloudinary URL (from production), use it directly
+  // If it's a Cloudinary URL (production), use it directly
   if (book.pdfFile.includes("cloudinary.com")) {
-    // Remove version parameter to ensure consistent URLs
     return book.pdfFile.replace(/\/v\d+\//, "/");
   }
 
-  // For local development with server running
-  if (process.env.NODE_ENV === "development") {
-    return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
-  }
-
-  // Fallback: try to use the stored path
-  return book.pdfFile;
+  // For local development, use ID-based endpoint
+  return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
 };
-
-// Helper function to generate PDF URL
 
 export const getAllBooks = async (req, res) => {
   try {
@@ -484,13 +470,17 @@ export const getAllBooks = async (req, res) => {
 
     res.json(booksWithPdfUrl);
   } catch (error) {
-    console.error(" Error in getAllBooks:", error);
+    console.error("❌ Error in getAllBooks:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
 export const getBookById = async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid book ID format" });
+    }
+
     const book = await Book.findById(req.params.id);
     if (!book) {
       return res.status(404).json({ message: "Book not found" });
@@ -501,7 +491,7 @@ export const getBookById = async (req, res) => {
 
     res.json(bookObj);
   } catch (error) {
-    console.error(" Error in getBookById:", error);
+    console.error("❌ Error in getBookById:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -510,7 +500,6 @@ export const createBook = async (req, res) => {
   try {
     console.log("\n========== CREATE BOOK ==========");
 
-    // Validate required fields
     const requiredFields = [
       "title",
       "author",
@@ -526,7 +515,6 @@ export const createBook = async (req, res) => {
       }
     }
 
-    // Create book data
     const bookData = {
       title: req.body.title,
       author: req.body.author,
@@ -540,18 +528,15 @@ export const createBook = async (req, res) => {
       coverImage: req.body.coverImage || "",
     };
 
-    // Handle PDF file upload
     if (req.file) {
       if (process.env.NODE_ENV === "production") {
-        // Store Cloudinary URL
-        bookData.pdfFile = req.file.path; // Cloudinary URL
+        bookData.pdfFile = req.file.path;
         bookData.pdfFilename = req.file.originalname;
-        console.log(" PDF saved to Cloudinary:", req.file.path);
+        console.log("📄 PDF saved to Cloudinary:", req.file.path);
       } else {
-        // Store local filename only
         bookData.pdfFile = req.file.filename;
         bookData.pdfFilename = req.file.originalname;
-        console.log(" PDF saved locally as:", req.file.filename);
+        console.log("📄 PDF saved locally as:", req.file.filename);
       }
     }
 
@@ -567,9 +552,8 @@ export const createBook = async (req, res) => {
       book: bookObj,
     });
   } catch (error) {
-    console.error(" Error creating book:", error);
+    console.error("❌ Error creating book:", error);
 
-    // Handle duplicate key error (ISBN)
     if (error.code === 11000) {
       return res.status(400).json({ message: "ISBN already exists" });
     }
@@ -582,13 +566,15 @@ export const updateBook = async (req, res) => {
   try {
     console.log("\n========== UPDATE BOOK ==========");
 
-    // Get old book to check for PDF changes
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid book ID format" });
+    }
+
     const oldBook = await Book.findById(req.params.id);
     if (!oldBook) {
       return res.status(404).json({ message: "Book not found" });
     }
 
-    // Build update data
     const updateData = {
       title: req.body.title,
       author: req.body.author,
@@ -602,22 +588,19 @@ export const updateBook = async (req, res) => {
       coverImage: req.body.coverImage || "",
     };
 
-    // Handle PDF file upload
     if (req.file) {
-      // Delete old PDF if exists
       if (oldBook.pdfFile) {
         await deleteFile(oldBook.pdfFile);
       }
 
-      // Store new PDF
       if (process.env.NODE_ENV === "production") {
-        updateData.pdfFile = req.file.path; // Cloudinary URL
+        updateData.pdfFile = req.file.path;
         updateData.pdfFilename = req.file.originalname;
       } else {
         updateData.pdfFile = req.file.filename;
         updateData.pdfFilename = req.file.originalname;
       }
-      console.log(" New PDF saved");
+      console.log("📄 New PDF saved");
     }
 
     const book = await Book.findByIdAndUpdate(req.params.id, updateData, {
@@ -634,7 +617,7 @@ export const updateBook = async (req, res) => {
       book: bookObj,
     });
   } catch (error) {
-    console.error(" Error updating book:", error);
+    console.error("❌ Error updating book:", error);
 
     if (error.code === 11000) {
       return res.status(400).json({ message: "ISBN already exists" });
@@ -646,12 +629,15 @@ export const updateBook = async (req, res) => {
 
 export const deleteBook = async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid book ID format" });
+    }
+
     const book = await Book.findById(req.params.id);
     if (!book) {
       return res.status(404).json({ message: "Book not found" });
     }
 
-    // Delete PDF file if exists
     if (book.pdfFile) {
       await deleteFile(book.pdfFile);
     }
@@ -663,19 +649,28 @@ export const deleteBook = async (req, res) => {
       message: "Book deleted successfully",
     });
   } catch (error) {
-    console.error(" Error deleting book:", error);
+    console.error("❌ Error deleting book:", error);
     res.status(500).json({ message: error.message });
   }
 };
 
 export const servePdf = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.id);
+    const { id } = req.params;
+    console.log("📄 Looking for book with ID:", id);
+    
+    // Validate if it's a valid MongoDB ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid book ID format" });
+    }
+    
+    const book = await Book.findById(id);
     if (!book || !book.pdfFile) {
       return res.status(404).json({ message: "PDF not found" });
     }
 
-    console.log(" Serving PDF for book:", book.title);
+    console.log("✅ Found book:", book.title);
+    console.log("📁 PDF file:", book.pdfFile);
 
     // Set proper headers
     res.setHeader("Content-Type", "application/pdf");
@@ -692,8 +687,8 @@ export const servePdf = async (req, res) => {
     if (process.env.NODE_ENV === "production") {
       // For production, redirect to Cloudinary URL
       const cloudinaryUrl = book.pdfFile.replace(/\/v\d+\//, "/");
-      console.log(" Redirecting to:", cloudinaryUrl);
-      return res.redirect(302, cloudinaryUrl); // Use 302 redirect
+      console.log("➡️ Redirecting to:", cloudinaryUrl);
+      return res.redirect(302, cloudinaryUrl);
     } else {
       // Development: serve local file
       const pdfPath = path.join(
@@ -704,102 +699,18 @@ export const servePdf = async (req, res) => {
         book.pdfFile,
       );
 
+      console.log("📁 Looking for file at:", pdfPath);
+
       if (!fs.existsSync(pdfPath)) {
-        return res
-          .status(404)
-          .json({ message: "PDF file not found on server" });
+        console.log("❌ File not found at path:", pdfPath);
+        return res.status(404).json({ message: "PDF file not found on server" });
       }
 
       const fileStream = fs.createReadStream(pdfPath);
       fileStream.pipe(res);
     }
   } catch (error) {
-    console.error(" Error serving PDF:", error);
+    console.error("❌ Error serving PDF:", error);
     res.status(500).json({ message: error.message });
   }
 };
-
-// export const servePdf = async (req, res) => {
-//   try {
-//     const book = await Book.findById(req.params.id);
-//     if (!book || !book.pdfFile) {
-//       return res.status(404).json({ message: "PDF not found" });
-//     }
-
-//     // Check for token in Authorization header
-//     const authHeader = req.headers.authorization;
-//     let token = null;
-
-//     if (authHeader && authHeader.startsWith("Bearer ")) {
-//       token = authHeader.substring(7);
-//     }
-
-//     // If no token in header, check cookies (if you're using cookies)
-//     // token = req.cookies?.token;
-
-//     if (!token) {
-//       console.log(" No token provided for PDF access");
-//       return res.status(401).json({ message: "Not authorized" });
-//     }
-
-//     // Verify token
-//     try {
-//       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-//       console.log(" Token verified for user:", decoded.id);
-//     } catch (error) {
-//       console.log(" Invalid token:", error.message);
-//       return res.status(401).json({ message: "Invalid token" });
-//     }
-
-//     console.log(" Serving PDF for book:", book.title);
-
-//     // Set proper headers
-//     res.setHeader("Content-Type", "application/pdf");
-//     res.setHeader(
-//       "Content-Disposition",
-//       `inline; filename="${book.pdfFilename || book.title}.pdf"`,
-//     );
-//     res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-//     res.setHeader("Pragma", "no-cache");
-//     res.setHeader("Expires", "0");
-//     res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-//     res.setHeader("Access-Control-Allow-Credentials", "true");
-//     res.setHeader(
-//       "Access-Control-Allow-Headers",
-//       "Authorization, Content-Type",
-//     );
-
-//     if (process.env.NODE_ENV === "production") {
-//       // For production, redirect to Cloudinary URL
-//       const cloudinaryUrl = book.pdfFile.replace(/\/v\d+\//, "/");
-//       console.log(" Redirecting to:", cloudinaryUrl);
-//       return res.redirect(cloudinaryUrl);
-//     } else {
-//       // Development: serve local file
-//       const pdfPath = path.join(
-//         __dirname,
-//         "..",
-//         "uploads",
-//         "pdfs",
-//         book.pdfFile,
-//       );
-
-//       if (!fs.existsSync(pdfPath)) {
-//         return res
-//           .status(404)
-//           .json({ message: "PDF file not found on server" });
-//       }
-
-//       const fileStream = fs.createReadStream(pdfPath);
-//       fileStream.pipe(res);
-//     }
-//   } catch (error) {
-//     console.error(" Error serving PDF:", error);
-//     res.status(500).json({ message: error.message });
-//   }
-// };
-
-
-
-
-
