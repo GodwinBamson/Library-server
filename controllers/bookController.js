@@ -462,24 +462,19 @@ const deleteFile = async (filePath) => {
 const getPdfUrl = (book) => {
   if (!book.pdfFile) return null;
 
-  // If it's already a Cloudinary URL (from production), use it directly
+  // If it's already a Cloudinary URL, clean it up and use it
   if (book.pdfFile.includes("cloudinary.com")) {
-    // Remove version parameter to ensure consistent URLs
     return book.pdfFile.replace(/\/v\d+\//, "/");
   }
 
-  // For local development with server running
-  if (process.env.NODE_ENV === "development") {
-    return `http://localhost:5000/api/books/pdf/${book._id}`;
-  }
-
-  // For production - use the Render URL
+  // In production, local files are invalid - return null
   if (process.env.NODE_ENV === "production") {
-    return `https://library-server-5rpq.onrender.com/api/books/pdf/${book._id}`;
+    console.warn(`Book ${book._id} has local file reference in production:`, book.pdfFile);
+    return null;
   }
 
-  // Fallback: try to use the stored path
-  return book.pdfFile;
+  // Development fallback
+  return `http://localhost:5000/api/books/pdf/${book._id}`;
 };
 
 // Helper function to generate PDF URL
