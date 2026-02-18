@@ -177,6 +177,7 @@ const isProduction = true;
 
 console.log("Using production mode:", isProduction);
 
+// Define storage
 let storage;
 
 if (isProduction) {
@@ -204,6 +205,7 @@ if (isProduction) {
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
   }
+  
   storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
@@ -231,32 +233,52 @@ const upload = multer({
   limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// Upload middleware
+// UPLOAD MIDDLEWARE - CRITICAL FIX
 export const uploadPDF = (req, res, next) => {
   console.log("\n========== UPLOAD MIDDLEWARE ==========");
   
   const singleUpload = upload.single("pdfFile");
 
-  singleUpload(req, res, (err) => {
+  singleUpload(req, res, async (err) => {
     if (err) {
       console.error("❌ Upload error:", err);
-      return res.status(400).json({ message: err.message });
+      return res.status(400).json({ 
+        message: err.message,
+        error: "File upload failed" 
+      });
     }
 
     if (req.file) {
       console.log("✅ File uploaded to Cloudinary");
       console.log("  - Original name:", req.file.originalname);
       console.log("  - Size:", (req.file.size / 1024 / 1024).toFixed(2), "MB");
-      console.log("  - Filename:", req.file.filename);
+      console.log("  - Filename from Cloudinary:", req.file.filename);
       console.log("  - Path from Cloudinary:", req.file.path);
       
-      // IMPORTANT: Override the path with the FULL Cloudinary URL
-      // This ensures we store the complete URL in the database
-      const fullUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${req.file.filename}`;
+      // CRITICAL: Cloudinary returns just the path, we need the FULL URL
+      // The path might be something like: "library-books/pdf-1234567890-123456789.pdf"
+      
+      const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+      let filename = req.file.filename;
+      
+      // Ensure filename has .pdf extension
+      if (!filename.endsWith('.pdf')) {
+        filename = filename + '.pdf';
+      }
+      
+      // Construct the COMPLETE Cloudinary URL
+      const fullUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/library-books/${filename}`;
+      
+      console.log("  ✅ CONSTRUCTED FULL URL:", fullUrl);
+      
+      // OVERRIDE the path with the full URL
       req.file.path = fullUrl;
       req.file.cloudinaryUrl = fullUrl;
       
-      console.log("  ✅ Final URL to be saved:", req.file.path);
+      // Also add a custom property to make it absolutely clear
+      req.file.fullUrl = fullUrl;
+      
+      console.log("  📌 FINAL URL that will be saved to database:", req.file.path);
     } else {
       console.log("⚠️ No file uploaded");
     }
