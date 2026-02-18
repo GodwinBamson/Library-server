@@ -954,13 +954,31 @@ export const createBook = async (req, res) => {
 
     // Handle PDF file upload
     if (req.file) {
+      console.log("🔥 FULL req.file object:", JSON.stringify(req.file, null, 2));
+      
       if (process.env.NODE_ENV === "production") {
-        // Validate Cloudinary URL
-        if (!req.file.path || !req.file.path.includes('cloudinary.com')) {
+        // Check if we have a full URL or just a path
+        if (!req.file.path.startsWith('http')) {
+          console.log("⚠️ Path is not a full URL, constructing full Cloudinary URL...");
+          console.log("Original path:", req.file.path);
+          console.log("Filename:", req.file.filename);
+          
+          // Construct the full Cloudinary URL
+          const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${req.file.filename}`;
+          
+          // Override the path with the full URL
+          req.file.path = cloudinaryUrl;
+          console.log("✅ Constructed full URL:", req.file.path);
+        }
+        
+        // Final validation - ensure we have a Cloudinary URL
+        if (!req.file.path.includes('cloudinary.com')) {
           console.error("❌ Cloudinary upload failed - no valid URL received");
+          console.error("Current path:", req.file.path);
           return res.status(500).json({
             message: "PDF upload to Cloudinary failed. Please try again.",
-            error: "CLOUDINARY_UPLOAD_FAILED"
+            error: "CLOUDINARY_UPLOAD_FAILED",
+            received: req.file.path
           });
         }
         
@@ -972,7 +990,16 @@ export const createBook = async (req, res) => {
         bookData.pdfFilename = req.file.originalname;
         console.log("✅ PDF saved locally as:", bookData.pdfFile);
       }
+    } else {
+      console.log("⚠️ No PDF file uploaded");
     }
+
+    console.log("📦 Final bookData:", {
+      title: bookData.title,
+      author: bookData.author,
+      pdfFile: bookData.pdfFile,
+      pdfFilename: bookData.pdfFilename
+    });
 
     const book = new Book(bookData);
     await book.save();
@@ -999,6 +1026,83 @@ export const createBook = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// export const createBook = async (req, res) => {
+//   try {
+//     console.log("\n========== CREATE BOOK ==========");
+//     console.log("NODE_ENV:", process.env.NODE_ENV);
+//     console.log("Request body:", req.body);
+//     console.log("Request file:", req.file);
+
+//     // Validate required fields
+//     const requiredFields = ["title", "author", "isbn", "description", "category", "publishedYear", "totalCopies"];
+//     for (const field of requiredFields) {
+//       if (!req.body[field]) {
+//         return res.status(400).json({ message: `${field} is required` });
+//       }
+//     }
+
+//     // Create book data
+//     const bookData = {
+//       title: req.body.title,
+//       author: req.body.author,
+//       isbn: req.body.isbn,
+//       description: req.body.description,
+//       category: req.body.category,
+//       publishedYear: parseInt(req.body.publishedYear),
+//       publisher: req.body.publisher || "",
+//       totalCopies: parseInt(req.body.totalCopies),
+//       availableCopies: parseInt(req.body.totalCopies),
+//       coverImage: req.body.coverImage || "",
+//     };
+
+//     // Handle PDF file upload
+//     if (req.file) {
+//       if (process.env.NODE_ENV === "production") {
+//         // Validate Cloudinary URL
+//         if (!req.file.path || !req.file.path.includes('cloudinary.com')) {
+//           console.error("❌ Cloudinary upload failed - no valid URL received");
+//           return res.status(500).json({
+//             message: "PDF upload to Cloudinary failed. Please try again.",
+//             error: "CLOUDINARY_UPLOAD_FAILED"
+//           });
+//         }
+        
+//         bookData.pdfFile = req.file.path;
+//         bookData.pdfFilename = req.file.originalname;
+//         console.log("✅ PDF saved to Cloudinary:", bookData.pdfFile);
+//       } else {
+//         bookData.pdfFile = req.file.filename;
+//         bookData.pdfFilename = req.file.originalname;
+//         console.log("✅ PDF saved locally as:", bookData.pdfFile);
+//       }
+//     }
+
+//     const book = new Book(bookData);
+//     await book.save();
+//     console.log("✅ Book saved with ID:", book._id);
+
+//     const bookObj = book.toObject();
+//     bookObj.pdfUrl = getPdfUrl(book);
+    
+//     console.log("📎 Final response with pdfUrl:", bookObj.pdfUrl);
+
+//     res.status(201).json({
+//       success: true,
+//       message: "Book created successfully",
+//       book: bookObj,
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Error creating book:", error);
+
+//     if (error.code === 11000) {
+//       return res.status(400).json({ message: "ISBN already exists" });
+//     }
+
+//     res.status(400).json({ message: error.message });
+//   }
+// };
 
 export const updateBook = async (req, res) => {
   try {

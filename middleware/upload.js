@@ -169,80 +169,58 @@ cloudinary.config({
 });
 
 console.log("\n========== UPLOAD CONFIGURATION ==========");
-console.log("Raw NODE_ENV:", process.env.NODE_ENV);
-console.log("NODE_ENV type:", typeof process.env.NODE_ENV);
-console.log("NODE_ENV === 'production':", process.env.NODE_ENV === "production");
+console.log("NODE_ENV:", process.env.NODE_ENV);
+console.log("Cloudinary Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME ? "✅" : "❌");
 
-// Force production detection for Render
-const isRender = process.env.RENDER === "true" || 
-                 (process.env.HOSTNAME && process.env.HOSTNAME.includes('render.com')) ||
-                 (process.env.RENDER_EXTERNAL_URL) ||
-                 (process.env.RENDER_INTERNAL_URL);
+// FORCE PRODUCTION MODE FOR RENDER
+const isProduction = true; // FORCE to true for Render
 
-const isProduction = process.env.NODE_ENV === "production" || isRender;
+console.log("Using production mode:", isProduction);
 
-console.log("Is Render?", isRender);
-console.log("Is Production?", isProduction);
-
-// Determine storage based on environment
 let storage;
 
 if (isProduction) {
-  console.log("✅ USING CLOUDINARY STORAGE FOR PRODUCTION");
+  console.log("✅ CONFIGURING CLOUDINARY STORAGE");
   
-  // Verify Cloudinary credentials
-  if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
-    console.error("❌ ERROR: Cloudinary credentials missing!");
-    console.error("Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME ? "✓" : "✗");
-    console.error("API Key:", process.env.CLOUDINARY_API_KEY ? "✓" : "✗");
-    console.error("API Secret:", process.env.CLOUDINARY_API_SECRET ? "✓" : "✗");
-  } else {
-    console.log("✓ Cloudinary credentials verified");
-  }
-
   // Cloudinary storage for production
   storage = new CloudinaryStorage({
     cloudinary: cloudinary,
-    params: {
-      folder: "library-books",
-      resource_type: "raw", // For PDF files
-      public_id: (req, file) => {
-        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-        const publicId = "pdf-" + uniqueSuffix;
-        console.log(`Generated public_id: ${publicId}`);
-        return publicId;
-      },
-      format: async (req, file) => {
-        console.log("Setting format to pdf");
-        return "pdf";
-      },
-      access_mode: "public",
-      use_filename: true,
-      unique_filename: true,
+    params: async (req, file) => {
+      console.log("📤 Uploading to Cloudinary:", file.originalname);
+      
+      // Generate unique filename
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      const publicId = "pdf-" + uniqueSuffix;
+      
+      console.log("Public ID:", publicId);
+      
+      return {
+        folder: "library-books",
+        resource_type: "raw",
+        public_id: publicId,
+        access_mode: "public",
+        use_filename: false,
+        unique_filename: true,
+      };
     },
   });
-  console.log("✓ Cloudinary storage configured with public access");
+  
+  console.log("✅ Cloudinary storage configured");
+  
 } else {
-  console.log("⚠️ USING LOCAL STORAGE FOR DEVELOPMENT");
+  console.log("⚠️ USING LOCAL STORAGE");
   
   // Local storage for development
   const uploadDir = path.join(__dirname, "../uploads/pdfs");
-
-  // Ensure directory exists
   if (!fs.existsSync(uploadDir)) {
     fs.mkdirSync(uploadDir, { recursive: true });
-    console.log("✓ Created local upload directory");
   }
 
   storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-      console.log("Saving to local directory:", uploadDir);
-      cb(null, uploadDir);
-    },
+    destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
       const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
       const filename = "pdf-" + uniqueSuffix + path.extname(file.originalname);
-      console.log("Generated local filename:", filename);
       cb(null, filename);
     },
   });
@@ -250,15 +228,11 @@ if (isProduction) {
 
 console.log("==========================================\n");
 
-// File filter - only accept PDFs
+// File filter
 const fileFilter = (req, file, cb) => {
-  console.log("File filter checking:", file.mimetype, file.originalname);
-
   if (file.mimetype === "application/pdf") {
-    console.log("✓ PDF accepted");
     cb(null, true);
   } else {
-    console.log("✗ Not a PDF - rejecting");
     cb(new Error("Only PDF files are allowed"), false);
   }
 };
@@ -267,71 +241,45 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
-  limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max
-  },
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-// Enhanced upload middleware with logging
+// Upload middleware
 export const uploadPDF = (req, res, next) => {
-  console.log("\n========== UPLOAD MIDDLEWARE START ==========");
-  console.log(`📤 Uploading PDF in ${process.env.NODE_ENV || "development"} mode...`);
-  console.log("Is production:", isProduction);
-  console.log("Request headers:", req.headers["content-type"]);
-  console.log("Request method:", req.method);
-  console.log("Request path:", req.path);
-
+  console.log("\n========== UPLOAD MIDDLEWARE ==========");
+  
   const singleUpload = upload.single("pdfFile");
 
-  singleUpload(req, res, (err) => {
+  singleUpload(req, res, async (err) => {
     if (err) {
-      console.error("❌ Upload error:", err.message);
-      console.error("Error details:", {
-        name: err.name,
-        code: err.code,
-        stack: err.stack
-      });
-      
-      return res.status(400).json({
-        message: err.message,
-        error: "File upload failed",
-      });
+      console.error("❌ Upload error:", err);
+      return res.status(400).json({ message: err.message });
     }
-
-    console.log("\n✅ Multer processing complete");
-    console.log("req.file:", req.file ? "PRESENT" : "MISSING");
 
     if (req.file) {
-      console.log("📄 File details:");
-      console.log(`   - Original name: ${req.file.originalname}`);
-      console.log(`   - Size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
-      console.log(`   - Mime type: ${req.file.mimetype}`);
-
+      console.log("✅ File uploaded successfully");
+      console.log("Original name:", req.file.originalname);
+      console.log("Size:", (req.file.size / 1024 / 1024).toFixed(2), "MB");
+      
+      // FOR PRODUCTION: Ensure we have a full Cloudinary URL
       if (isProduction) {
-        console.log(`   - Cloudinary URL: ${req.file.path}`);
-        console.log(`   - Valid Cloudinary URL? ${req.file.path?.includes('cloudinary.com')}`);
+        // The path from CloudinaryStorage might be just the path, not the full URL
+        // Let's construct the full URL manually
+        const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${req.file.filename}`;
         
-        if (!req.file.path || !req.file.path.includes('cloudinary.com')) {
-          console.error("❌ CRITICAL ERROR: Upload did not return a Cloudinary URL!");
-        } else {
-          console.log("✅ Successfully uploaded to Cloudinary");
-        }
-      } else {
-        console.log(`   - Saved as: ${req.file.filename}`);
-        console.log(`   - Full path: ${req.file.path}`);
-
-        if (fs.existsSync(req.file.path)) {
-          console.log("✅ File exists on disk");
-        } else {
-          console.log("❌ File NOT found on disk!");
-        }
+        console.log("🔧 Original path:", req.file.path);
+        console.log("🔧 Constructed URL:", cloudinaryUrl);
+        
+        // Override the path with the full URL
+        req.file.path = cloudinaryUrl;
+        req.file.cloudinaryUrl = cloudinaryUrl;
+        
+        console.log("✅ Final URL stored:", req.file.path);
       }
     } else {
-      console.log("⚠️ No file uploaded - check frontend FormData");
-      console.log("req.body:", req.body);
+      console.log("⚠️ No file uploaded");
     }
 
-    console.log("========== UPLOAD MIDDLEWARE END ==========\n");
     next();
   });
 };
