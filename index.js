@@ -162,6 +162,8 @@
 
 
 
+
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -206,15 +208,16 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, Postman)
       if (!origin) return callback(null, true);
-      if (
-        allowedOrigins.indexOf(origin) !== -1 ||
-        process.env.NODE_ENV === "development"
-      ) {
+
+      // Check if origin is allowed
+      if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {
-        console.log(" CORS blocked origin:", origin);
-        callback(null, true);
+        console.log("❌ CORS blocked origin:", origin);
+        console.log("✅ Allowed origins:", allowedOrigins);
+        callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
@@ -230,6 +233,7 @@ app.use(
   }),
 );
 
+// Handle preflight requests
 app.options("*", cors());
 
 // --------------------
@@ -249,7 +253,31 @@ app.use((req, res, next) => {
 });
 
 // --------------------
-// Debug Routes
+// Development uploads directory
+// --------------------
+if (process.env.NODE_ENV === "development") {
+  const uploadDir = path.join(__dirname, "uploads/pdfs");
+
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    console.log(" Created uploads directory for development");
+  }
+
+  try {
+    const testFile = path.join(uploadDir, `test-${Date.now()}.txt`);
+    fs.writeFileSync(testFile, "test");
+    console.log(" Upload directory is writable");
+    fs.unlinkSync(testFile);
+  } catch (err) {
+    console.error(" Upload directory is NOT writable:", err.message);
+  }
+
+  // Serve static files
+  app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+}
+
+// --------------------
+// DEBUG ROUTES
 // --------------------
 
 // Debug environment variables
@@ -258,6 +286,7 @@ app.get("/api/debug-env", (req, res) => {
     NODE_ENV: process.env.NODE_ENV,
     isProduction: process.env.NODE_ENV === "production",
     isRender: process.env.RENDER === "true",
+    clientUrl: process.env.CLIENT_URL,
     cloudinary_config: {
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? "✅ Set" : "❌ Missing",
       api_key: process.env.CLOUDINARY_API_KEY ? "✅ Set" : "❌ Missing",
@@ -350,7 +379,7 @@ app.get("/api/debug-book/:id", async (req, res) => {
       pdfFilename: book.pdfFilename,
       pdfFileType: typeof book.pdfFile,
       isCloudinaryUrl: book.pdfFile?.includes('cloudinary.com'),
-      isLocalFile: book.pdfFile && !book.pdfFile.includes('cloudinary.com') && book.pdfFile.startsWith('pdf-'),
+      isLocalFile: book.pdfFile && !book.pdfFile.includes('cloudinary.com'),
       needsFixing: book.pdfFile && !book.pdfFile.includes('cloudinary.com')
     });
   } catch (error) {
@@ -382,14 +411,14 @@ app.get("/api/admin/fix-pdfs", async (req, res) => {
       totalBooks: books.length,
       problematicBooks: problematicBooks.length,
       books: problematicBooks,
-      message: "Use /api/fix-book-now/:id to fix individual books, or delete and re-upload them"
+      message: "Use /api/fix-book-now/:id to fix individual books, or /api/fix-all-pdfs-now to fix all at once"
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
-// TEMPORARY FIX ENDPOINT - Fix a single book with version detection
+// TEMPORARY FIX ENDPOINT - Fix a single book
 app.get("/api/fix-book-now/:id", async (req, res) => {
   try {
     const Book = (await import("./models/Book.js")).default;
@@ -411,72 +440,115 @@ app.get("/api/fix-book-now/:id", async (req, res) => {
     }
     
     // Get the filename from the current pdfFile
-    const filename = book.pdfFile.split('/').pop();
-    
-    // Extract timestamp from filename (pdf-1771401015410-38156110.pdf)
-    const timestampMatch = filename.match(/pdf-(\d+)/);
-    let version = '';
-    
-    if (timestampMatch && timestampMatch[1]) {
-      const timestamp = timestampMatch[1];
-      // Cloudinary version is first 10 digits of timestamp
-      version = 'v' + timestamp.substring(0, 10);
+    let filename = book.pdfFile;
+    if (filename.includes('/')) {
+      filename = filename.split('/').pop();
     }
     
-    // Try URL with version first
-    let correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${version}/library-books/${filename}`;
+    // Ensure filename has .pdf extension
+    if (!filename.endsWith('.pdf')) {
+      filename = filename + '.pdf';
+    }
+    
+    // Construct the correct Cloudinary URL
+    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
     
     // Test if URL works
     let urlWorks = false;
-    let finalUrl = correctUrl;
-    
     try {
       const testResponse = await fetch(correctUrl, { method: 'HEAD' });
       urlWorks = testResponse.ok;
-      console.log(`URL with version ${version}: ${urlWorks ? '✅' : '❌'}`);
     } catch (e) {
-      console.log("Version URL test failed:", e.message);
-    }
-    
-    // If version URL doesn't work, try without version
-    if (!urlWorks) {
-      const simpleUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
-      try {
-        const testSimple = await fetch(simpleUrl, { method: 'HEAD' });
-        if (testSimple.ok) {
-          urlWorks = true;
-          finalUrl = simpleUrl;
-          console.log("Simple URL works: ✅");
-        }
-      } catch (e) {
-        console.log("Simple URL test failed");
-      }
-    }
-    
-    // Ensure URL ends with .pdf
-    if (!finalUrl.endsWith('.pdf')) {
-      finalUrl = finalUrl + '.pdf';
+      console.log("URL test failed:", e.message);
     }
     
     // Save the corrected URL
     const oldValue = book.pdfFile;
-    book.pdfFile = finalUrl;
+    book.pdfFile = correctUrl;
     await book.save();
     
     res.json({
       success: true,
       message: "Book PDF URL fixed",
       oldValue: oldValue,
-      newValue: finalUrl,
+      newValue: correctUrl,
       urlWorks: urlWorks,
-      version: version,
-      testUrl: `${finalUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`,
-      note: urlWorks ? "✅ PDF should now load" : "❌ URL doesn't work - you may need to re-upload the book"
+      testUrl: `${correctUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`,
+      note: urlWorks ? "✅ PDF should now load" : "❌ URL doesn't work - file may not exist on Cloudinary"
     });
     
   } catch (error) {
     console.error("❌ Fix error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// ULTIMATE FIX for all existing books
+// =============================================
+app.get("/api/fix-all-pdfs-now", async (req, res) => {
+  try {
+    const Book = (await import("./models/Book.js")).default;
+    const books = await Book.find({});
+    
+    const results = [];
+    let fixed = 0;
+    let skipped = 0;
+    
+    for (const book of books) {
+      if (book.pdfFile && !book.pdfFile.includes('cloudinary.com')) {
+        // Extract filename - handle different formats
+        let filename = book.pdfFile;
+        if (filename.includes('/')) {
+          filename = filename.split('/').pop();
+        }
+        
+        // Clean filename - remove any invalid characters
+        filename = filename.replace(/[^a-zA-Z0-9-_.]/g, '');
+        
+        // Ensure .pdf extension
+        if (!filename.endsWith('.pdf')) {
+          filename = filename + '.pdf';
+        }
+        
+        // Construct correct Cloudinary URL
+        const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
+        
+        console.log(`📚 Fixing book: ${book.title}`);
+        console.log(`   Old: ${book.pdfFile}`);
+        console.log(`   New: ${correctUrl}`);
+        
+        // Update the book
+        book.pdfFile = correctUrl;
+        await book.save();
+        
+        results.push({
+          id: book._id,
+          title: book.title,
+          old: book.pdfFile,
+          new: correctUrl
+        });
+        fixed++;
+      } else {
+        skipped++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Fixed ${fixed} books, skipped ${skipped} books`,
+      totalProcessed: books.length,
+      fixed: fixed,
+      skipped: skipped,
+      books: results
+    });
+    
+  } catch (error) {
+    console.error("❌ Fix all error:", error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
 
@@ -498,7 +570,10 @@ app.get("/api/fix-book-simple/:id", async (req, res) => {
     }
     
     // Get the filename
-    const filename = book.pdfFile.split('/').pop();
+    let filename = book.pdfFile;
+    if (filename.includes('/')) {
+      filename = filename.split('/').pop();
+    }
     
     // Simple URL without version
     const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
@@ -520,7 +595,7 @@ app.get("/api/fix-book-simple/:id", async (req, res) => {
   }
 });
 
-// Bulk fix all books (use with caution)
+// Bulk fix all books (legacy endpoint)
 app.get("/api/fix-all-books", async (req, res) => {
   try {
     const Book = (await import("./models/Book.js")).default;
@@ -530,7 +605,10 @@ app.get("/api/fix-all-books", async (req, res) => {
     
     for (const book of books) {
       if (book.pdfFile && !book.pdfFile.includes('cloudinary.com')) {
-        const filename = book.pdfFile.split('/').pop();
+        let filename = book.pdfFile;
+        if (filename.includes('/')) {
+          filename = filename.split('/').pop();
+        }
         const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
         
         results.push({
@@ -556,71 +634,7 @@ app.get("/api/fix-all-books", async (req, res) => {
 });
 
 // =============================================
-// NEW: ONE-TIME FIX for all books - SIMPLIFIED VERSION
-// =============================================
-app.get("/api/fix-all-pdfs-now", async (req, res) => {
-  try {
-    const Book = (await import("./models/Book.js")).default;
-    const books = await Book.find({});
-    
-    const results = [];
-    let fixed = 0;
-    let skipped = 0;
-    
-    for (const book of books) {
-      if (book.pdfFile && !book.pdfFile.includes('cloudinary.com')) {
-        // Get the filename (remove any path)
-        const filename = book.pdfFile.split('/').pop();
-        
-        // Ensure filename has .pdf extension
-        let cleanFilename = filename;
-        if (!cleanFilename.endsWith('.pdf')) {
-          cleanFilename = cleanFilename + '.pdf';
-        }
-        
-        // Construct the correct Cloudinary URL
-        const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${cleanFilename}`;
-        
-        console.log(`📚 Fixing book: ${book.title}`);
-        console.log(`   Old: ${book.pdfFile}`);
-        console.log(`   New: ${correctUrl}`);
-        
-        results.push({
-          id: book._id,
-          title: book.title,
-          old: book.pdfFile,
-          new: correctUrl
-        });
-        
-        // Update the book
-        book.pdfFile = correctUrl;
-        await book.save();
-        fixed++;
-      } else {
-        skipped++;
-      }
-    }
-    
-    res.json({
-      success: true,
-      message: `Fixed ${fixed} books, skipped ${skipped} books`,
-      totalProcessed: books.length,
-      fixed: fixed,
-      skipped: skipped,
-      books: results
-    });
-    
-  } catch (error) {
-    console.error("❌ Fix all error:", error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-// =============================================
-// Routes
+// MAIN ROUTES
 // =============================================
 app.use("/api/auth", authRoutes);
 app.use("/api/books", bookRoutes);
@@ -635,14 +649,17 @@ app.get("/health", (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
     message: "Server is running",
+    clientUrl: process.env.CLIENT_URL
   });
 });
 
+// Test endpoint
 app.get("/api/test", (req, res) => {
   res.json({
     message: "API is working!",
     environment: process.env.NODE_ENV,
     timestamp: new Date().toISOString(),
+    clientUrl: process.env.CLIENT_URL
   });
 });
 
@@ -666,5 +683,9 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(` Cloudinary API Key: ${process.env.CLOUDINARY_API_KEY ? "✅" : "❌"}`);
   console.log(` Cloudinary API Secret: ${process.env.CLOUDINARY_API_SECRET ? "✅" : "❌"}`);
   console.log(`🔗 Client URL: ${process.env.CLIENT_URL || "http://localhost:5173"}`);
+  console.log(` Allowed origins:`, allowedOrigins);
+  if (process.env.NODE_ENV === "development") {
+    console.log(` Upload directory: ${path.join(__dirname, "uploads/pdfs")}`);
+  }
   console.log("====================================\n");
 });
