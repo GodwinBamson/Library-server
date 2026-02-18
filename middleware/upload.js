@@ -170,10 +170,10 @@ cloudinary.config({
 
 console.log("\n========== UPLOAD CONFIGURATION ==========");
 console.log("NODE_ENV:", process.env.NODE_ENV);
-console.log("Cloudinary Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME ? "✅" : "❌");
+console.log("Cloudinary Cloud Name:", process.env.CLOUDINARY_CLOUD_NAME);
 
 // FORCE PRODUCTION MODE FOR RENDER
-const isProduction = true; // FORCE to true for Render
+const isProduction = true; // Force to true for Render
 
 console.log("Using production mode:", isProduction);
 
@@ -182,17 +182,17 @@ let storage;
 if (isProduction) {
   console.log("✅ CONFIGURING CLOUDINARY STORAGE");
   
-  // Cloudinary storage for production
+  // Custom storage to ensure proper URL and extension
   storage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: async (req, file) => {
-      console.log("📤 Uploading to Cloudinary:", file.originalname);
-      
-      // Generate unique filename
+      // Generate unique filename WITH .pdf extension
       const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-      const publicId = "pdf-" + uniqueSuffix;
+      const publicId = `pdf-${uniqueSuffix}`;
       
-      console.log("Public ID:", publicId);
+      console.log("📤 Uploading to Cloudinary:");
+      console.log("  - Original name:", file.originalname);
+      console.log("  - Public ID:", publicId);
       
       return {
         folder: "library-books",
@@ -201,6 +201,7 @@ if (isProduction) {
         access_mode: "public",
         use_filename: false,
         unique_filename: true,
+        format: "pdf", // Force PDF extension
       };
     },
   });
@@ -220,7 +221,7 @@ if (isProduction) {
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
       const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-      const filename = "pdf-" + uniqueSuffix + path.extname(file.originalname);
+      const filename = "pdf-" + uniqueSuffix + ".pdf"; // Ensure .pdf extension
       cb(null, filename);
     },
   });
@@ -258,23 +259,30 @@ export const uploadPDF = (req, res, next) => {
 
     if (req.file) {
       console.log("✅ File uploaded successfully");
-      console.log("Original name:", req.file.originalname);
-      console.log("Size:", (req.file.size / 1024 / 1024).toFixed(2), "MB");
+      console.log("  - Original name:", req.file.originalname);
+      console.log("  - Size:", (req.file.size / 1024 / 1024).toFixed(2), "MB");
+      console.log("  - Filename:", req.file.filename);
+      console.log("  - Path from Cloudinary:", req.file.path);
       
-      // FOR PRODUCTION: Ensure we have a full Cloudinary URL
+      // FOR PRODUCTION: Construct the FULL Cloudinary URL
       if (isProduction) {
-        // The path from CloudinaryStorage might be just the path, not the full URL
-        // Let's construct the full URL manually
-        const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${req.file.filename}`;
+        // Get the filename (ensure it has .pdf extension)
+        let filename = req.file.filename;
+        if (!filename.endsWith('.pdf')) {
+          filename = filename + '.pdf';
+        }
         
-        console.log("🔧 Original path:", req.file.path);
-        console.log("🔧 Constructed URL:", cloudinaryUrl);
+        // Construct the full URL
+        const cloudinaryUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
         
-        // Override the path with the full URL
+        console.log("  🔧 Original path:", req.file.path);
+        console.log("  🔧 Constructed URL:", cloudinaryUrl);
+        
+        // Override with full URL
         req.file.path = cloudinaryUrl;
         req.file.cloudinaryUrl = cloudinaryUrl;
         
-        console.log("✅ Final URL stored:", req.file.path);
+        console.log("  ✅ Final URL stored:", req.file.path);
       }
     } else {
       console.log("⚠️ No file uploaded");
