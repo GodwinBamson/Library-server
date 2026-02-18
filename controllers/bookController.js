@@ -1078,7 +1078,6 @@
 // };
 
 
-
 import Book from "../models/Book.js";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -1149,12 +1148,14 @@ const getPdfUrl = (book) => {
 
   // For production server, use the Render URL
   if (process.env.NODE_ENV === "production") {
-    const baseUrl = process.env.API_URL || "https://library-server-5rpq.onrender.com";
-    return `${baseUrl}/api/books/pdf/${book._id}`;
+    const baseUrl = "https://library-server-5rpq.onrender.com";
+    const pdfUrl = `${baseUrl}/api/books/pdf/${book._id}`;
+    console.log(" Generated production PDF URL:", pdfUrl);
+    return pdfUrl;
   }
 
   // For local development
-  return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
+  return `http://localhost:5000/api/books/pdf/${book._id}`;
 };
 
 export const getAllBooks = async (req, res) => {
@@ -1381,7 +1382,7 @@ export const servePdf = async (req, res) => {
     console.log(" PDF file path:", book.pdfFile);
 
     // Set CORS headers
-    res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept");
