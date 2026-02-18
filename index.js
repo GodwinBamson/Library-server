@@ -380,9 +380,188 @@ app.get("/api/debug-book/:id", async (req, res) => {
       pdfFileType: typeof book.pdfFile,
       isCloudinaryUrl: book.pdfFile?.includes('cloudinary.com'),
       isLocalFile: book.pdfFile && !book.pdfFile.includes('cloudinary.com'),
-      needsFixing: book.pdfFile && !book.pdfFile.includes('cloudinary.com')
+      needsFixing: book.pdfFile && !book.pdfFile.includes('cloudinary.com'),
+      isTruncated: book.pdfFile?.includes('library-...') || book.pdfFile?.endsWith('library-')
     });
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =============================================
+// FIX TRUNCATED PDF URLS - ADD THIS ENDPOINT
+// =============================================
+app.get("/api/fix-truncated-pdfs", async (req, res) => {
+  try {
+    const Book = (await import("./models/Book.js")).default;
+    const books = await Book.find({});
+    
+    const results = [];
+    let fixed = 0;
+    let skipped = 0;
+    
+    for (const book of books) {
+      if (book.pdfFile && book.pdfFile.includes('cloudinary.com')) {
+        // Check if URL is truncated (ends with "library-..." or similar)
+        if (book.pdfFile.includes('library-...') || book.pdfFile.endsWith('library-')) {
+          console.log(`🔧 Fixing truncated URL for book: ${book.title}`);
+          console.log(`   Current URL: ${book.pdfFile}`);
+          
+          // Extract the filename from the pdfFilename field
+          let filename = book.pdfFilename;
+          
+          if (filename) {
+            // Clean the filename - remove any invalid characters
+            filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
+            
+            // Ensure it ends with .pdf
+            if (!filename.toLowerCase().endsWith('.pdf')) {
+              filename = filename + '.pdf';
+            }
+            
+            // Construct the correct Cloudinary URL
+            const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
+            
+            console.log(`   New URL: ${correctUrl}`);
+            
+            // Update the book
+            book.pdfFile = correctUrl;
+            await book.save();
+            
+            results.push({
+              id: book._id,
+              title: book.title,
+              old: book.pdfFile,
+              new: correctUrl,
+              filename: filename
+            });
+            fixed++;
+          } else {
+            // No filename available, try to extract from the URL
+            console.log(`⚠️ No pdfFilename for book: ${book.title}, trying to extract from URL...`);
+            
+            // Try to extract from the truncated URL
+            const urlParts = book.pdfFile.split('/');
+            const lastPart = urlParts[urlParts.length - 1];
+            
+            if (lastPart && lastPart !== 'library-...') {
+              const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${lastPart}`;
+              
+              book.pdfFile = correctUrl;
+              await book.save();
+              
+              results.push({
+                id: book._id,
+                title: book.title,
+                old: book.pdfFile,
+                new: correctUrl,
+                note: "Recovered from URL"
+              });
+              fixed++;
+            } else {
+              results.push({
+                id: book._id,
+                title: book.title,
+                error: "Cannot determine filename",
+                pdfFile: book.pdfFile
+              });
+              skipped++;
+            }
+          }
+        } else {
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Fixed ${fixed} truncated PDF URLs, skipped ${skipped} books`,
+      totalProcessed: books.length,
+      fixed: fixed,
+      skipped: skipped,
+      books: results
+    });
+    
+  } catch (error) {
+    console.error("❌ Fix error:", error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// =============================================
+// FIX THE SPECIFIC BOOK YOU MENTIONED
+// =============================================
+app.get("/api/fix-paul-book", async (req, res) => {
+  try {
+    const Book = (await import("./models/Book.js")).default;
+    
+    // Find the book with id: 6995acba7dbadada4f13a584
+    const book = await Book.findById("6995acba7dbadada4f13a584");
+    
+    if (!book) {
+      return res.status(404).json({ error: "Book not found" });
+    }
+    
+    console.log("📚 Found book:", book.title);
+    console.log("Current pdfFile:", book.pdfFile);
+    console.log("pdfFilename:", book.pdfFilename);
+    
+    // Extract filename from pdfFilename
+    let filename = book.pdfFilename;
+    
+    if (!filename) {
+      return res.json({
+        error: "No pdfFilename found",
+        book: book
+      });
+    }
+    
+    // Clean the filename
+    filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
+    
+    // Ensure .pdf extension
+    if (!filename.toLowerCase().endsWith('.pdf')) {
+      filename = filename + '.pdf';
+    }
+    
+    // Construct correct URL
+    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
+    
+    // Save the fix
+    const oldValue = book.pdfFile;
+    book.pdfFile = correctUrl;
+    await book.save();
+    
+    // Test if URL works
+    let urlWorks = false;
+    try {
+      const testResponse = await fetch(correctUrl, { method: 'HEAD' });
+      urlWorks = testResponse.ok;
+    } catch (e) {
+      console.log("URL test failed:", e.message);
+    }
+    
+    res.json({
+      success: true,
+      message: "Book PDF URL fixed",
+      bookId: book._id,
+      title: book.title,
+      oldValue: oldValue,
+      newValue: correctUrl,
+      filename: filename,
+      urlWorks: urlWorks,
+      testUrl: `${correctUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`,
+      note: urlWorks ? "✅ PDF should now load" : "❌ URL doesn't work - file may not exist on Cloudinary"
+    });
+    
+  } catch (error) {
+    console.error("❌ Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -404,6 +583,15 @@ app.get("/api/admin/fix-pdfs", async (req, res) => {
           pdfFilename: book.pdfFilename,
           created: book.createdAt
         });
+      } else if (book.pdfFile && (book.pdfFile.includes('library-...') || book.pdfFile.endsWith('library-'))) {
+        problematicBooks.push({
+          id: book._id,
+          title: book.title,
+          pdfFile: book.pdfFile,
+          pdfFilename: book.pdfFilename,
+          created: book.createdAt,
+          issue: "truncated_url"
+        });
       }
     }
     
@@ -411,7 +599,7 @@ app.get("/api/admin/fix-pdfs", async (req, res) => {
       totalBooks: books.length,
       problematicBooks: problematicBooks.length,
       books: problematicBooks,
-      message: "Use /api/fix-book-now/:id to fix individual books, or /api/fix-all-pdfs-now to fix all at once"
+      message: "Use /api/fix-book-now/:id to fix individual books, /api/fix-truncated-pdfs to fix all truncated URLs, or /api/fix-all-pdfs-now to fix all at once"
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -431,19 +619,34 @@ app.get("/api/fix-book-now/:id", async (req, res) => {
     console.log("🔧 Fixing book:", book.title);
     console.log("Current pdfFile:", book.pdfFile);
     
-    if (book.pdfFile.includes('cloudinary.com')) {
+    if (book.pdfFile.includes('cloudinary.com') && !book.pdfFile.includes('library-...') && !book.pdfFile.endsWith('library-')) {
       return res.json({
         success: true,
-        message: "Book already has Cloudinary URL",
+        message: "Book already has valid Cloudinary URL",
         pdfFile: book.pdfFile
       });
     }
     
-    // Get the filename from the current pdfFile
-    let filename = book.pdfFile;
-    if (filename.includes('/')) {
-      filename = filename.split('/').pop();
+    // Get the filename from pdfFilename or current pdfFile
+    let filename = book.pdfFilename;
+    
+    if (!filename && book.pdfFile) {
+      if (book.pdfFile.includes('/')) {
+        filename = book.pdfFile.split('/').pop();
+      } else {
+        filename = book.pdfFile;
+      }
     }
+    
+    if (!filename) {
+      return res.json({
+        error: "Cannot determine filename for this book",
+        book: book
+      });
+    }
+    
+    // Clean filename
+    filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
     
     // Ensure filename has .pdf extension
     if (!filename.endsWith('.pdf')) {
@@ -451,7 +654,7 @@ app.get("/api/fix-book-now/:id", async (req, res) => {
     }
     
     // Construct the correct Cloudinary URL
-    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
+    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
     
     // Test if URL works
     let urlWorks = false;
@@ -496,39 +699,59 @@ app.get("/api/fix-all-pdfs-now", async (req, res) => {
     let skipped = 0;
     
     for (const book of books) {
-      if (book.pdfFile && !book.pdfFile.includes('cloudinary.com')) {
-        // Extract filename - handle different formats
-        let filename = book.pdfFile;
-        if (filename.includes('/')) {
-          filename = filename.split('/').pop();
+      if (book.pdfFile) {
+        // Check if URL is invalid (truncated or not Cloudinary)
+        if (!book.pdfFile.includes('cloudinary.com') || book.pdfFile.includes('library-...') || book.pdfFile.endsWith('library-')) {
+          
+          // Extract filename from pdfFilename or current pdfFile
+          let filename = book.pdfFilename;
+          
+          if (!filename && book.pdfFile) {
+            if (book.pdfFile.includes('/')) {
+              filename = book.pdfFile.split('/').pop();
+            } else {
+              filename = book.pdfFile;
+            }
+          }
+          
+          if (filename) {
+            // Clean filename - remove any invalid characters
+            filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
+            
+            // Ensure .pdf extension
+            if (!filename.toLowerCase().endsWith('.pdf')) {
+              filename = filename + '.pdf';
+            }
+            
+            // Construct correct Cloudinary URL
+            const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
+            
+            console.log(`📚 Fixing book: ${book.title}`);
+            console.log(`   Old: ${book.pdfFile}`);
+            console.log(`   New: ${correctUrl}`);
+            
+            // Update the book
+            book.pdfFile = correctUrl;
+            await book.save();
+            
+            results.push({
+              id: book._id,
+              title: book.title,
+              old: book.pdfFile,
+              new: correctUrl
+            });
+            fixed++;
+          } else {
+            results.push({
+              id: book._id,
+              title: book.title,
+              error: "No filename found"
+            });
+            skipped++;
+          }
+        } else {
+          skipped++;
         }
-        
-        // Clean filename - remove any invalid characters
-        filename = filename.replace(/[^a-zA-Z0-9-_.]/g, '');
-        
-        // Ensure .pdf extension
-        if (!filename.endsWith('.pdf')) {
-          filename = filename + '.pdf';
-        }
-        
-        // Construct correct Cloudinary URL
-        const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
-        
-        console.log(`📚 Fixing book: ${book.title}`);
-        console.log(`   Old: ${book.pdfFile}`);
-        console.log(`   New: ${correctUrl}`);
-        
-        // Update the book
-        book.pdfFile = correctUrl;
-        await book.save();
-        
-        results.push({
-          id: book._id,
-          title: book.title,
-          old: book.pdfFile,
-          new: correctUrl
-        });
-        fixed++;
       } else {
         skipped++;
       }
@@ -562,21 +785,34 @@ app.get("/api/fix-book-simple/:id", async (req, res) => {
       return res.status(404).json({ error: "Book not found" });
     }
     
-    if (book.pdfFile.includes('cloudinary.com')) {
+    if (book.pdfFile.includes('cloudinary.com') && !book.pdfFile.includes('library-...') && !book.pdfFile.endsWith('library-')) {
       return res.json({
         success: true,
-        message: "Book already has Cloudinary URL"
+        message: "Book already has valid Cloudinary URL"
       });
     }
     
     // Get the filename
-    let filename = book.pdfFile;
-    if (filename.includes('/')) {
-      filename = filename.split('/').pop();
+    let filename = book.pdfFilename;
+    if (!filename && book.pdfFile) {
+      if (book.pdfFile.includes('/')) {
+        filename = book.pdfFile.split('/').pop();
+      } else {
+        filename = book.pdfFile;
+      }
     }
     
+    if (!filename) {
+      return res.json({
+        error: "Cannot determine filename"
+      });
+    }
+    
+    // Clean filename
+    filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
+    
     // Simple URL without version
-    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
+    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
     
     const oldValue = book.pdfFile;
     book.pdfFile = correctUrl;
