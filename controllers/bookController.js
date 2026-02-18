@@ -928,7 +928,14 @@ export const createBook = async (req, res) => {
     console.log("\n========== CREATE BOOK ==========");
     console.log("NODE_ENV:", process.env.NODE_ENV);
     console.log("Request body:", req.body);
-    console.log("Request file:", req.file);
+    
+    // Log the file details
+    if (req.file) {
+      console.log("📄 File received:");
+      console.log("  - Original name:", req.file.originalname);
+      console.log("  - Path from middleware:", req.file.path);
+      console.log("  - Is Cloudinary URL?", req.file.path.includes('cloudinary.com'));
+    }
 
     // Validate required fields
     const requiredFields = ["title", "author", "isbn", "description", "category", "publishedYear", "totalCopies"];
@@ -954,43 +961,25 @@ export const createBook = async (req, res) => {
 
     // Handle PDF file upload
     if (req.file) {
-      console.log("🔥 FULL req.file object:", JSON.stringify(req.file, null, 2));
-      
-      // FOR PRODUCTION: Ensure we have a full URL with correct extension
+      // In production, req.file.path should now be the FULL Cloudinary URL
       if (process.env.NODE_ENV === "production") {
-        // Check if we need to construct the URL
+        // Double-check that we have a full URL
         let pdfUrl = req.file.path;
         
-        // If it's not a full URL, construct it
+        // If somehow it's still not a full URL, construct it
         if (!pdfUrl.startsWith('http')) {
-          // Get filename and ensure .pdf extension
-          let filename = req.file.filename || req.file.public_id;
-          if (!filename.endsWith('.pdf')) {
-            filename = filename + '.pdf';
-          }
-          
-          pdfUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
-          console.log("🔧 Constructed full URL:", pdfUrl);
+          console.log("⚠️ Path is not a full URL, constructing...");
+          pdfUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${req.file.filename}`;
         }
         
-        // Ensure URL ends with .pdf
+        // Ensure it ends with .pdf
         if (!pdfUrl.endsWith('.pdf')) {
           pdfUrl = pdfUrl + '.pdf';
-          console.log("🔧 Added .pdf extension:", pdfUrl);
-        }
-        
-        // Final validation
-        if (!pdfUrl.includes('cloudinary.com')) {
-          console.error("❌ Invalid Cloudinary URL:", pdfUrl);
-          return res.status(500).json({
-            message: "PDF upload failed - invalid URL",
-            error: "CLOUDINARY_UPLOAD_FAILED"
-          });
         }
         
         bookData.pdfFile = pdfUrl;
         bookData.pdfFilename = req.file.originalname;
-        console.log("✅ PDF saved with URL:", bookData.pdfFile);
+        console.log("✅ FINAL PDF URL being saved:", bookData.pdfFile);
       } else {
         // Local development
         bookData.pdfFile = req.file.filename;
@@ -999,16 +988,14 @@ export const createBook = async (req, res) => {
       }
     }
 
-    console.log("📦 Saving book with PDF:", bookData.pdfFile);
-
     const book = new Book(bookData);
     await book.save();
     console.log("✅ Book saved with ID:", book._id);
+    console.log("📚 PDF URL in database:", book.pdfFile);
 
+    // Return the book with pdfUrl
     const bookObj = book.toObject();
-    bookObj.pdfUrl = bookData.pdfFile; // Direct URL, no need for getPdfUrl
-    
-    console.log("📎 Final response with pdfUrl:", bookObj.pdfUrl);
+    bookObj.pdfUrl = book.pdfFile;
 
     res.status(201).json({
       success: true,

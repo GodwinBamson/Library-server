@@ -161,6 +161,7 @@
 
 
 
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -364,7 +365,6 @@ app.get("/api/admin/fix-pdfs", async (req, res) => {
     const books = await Book.find({});
     
     const problematicBooks = [];
-    const fixedBooks = [];
     
     for (const book of books) {
       if (book.pdfFile && !book.pdfFile.includes("cloudinary.com")) {
@@ -424,7 +424,7 @@ app.get("/api/fix-book-now/:id", async (req, res) => {
     }
     
     // Try URL with version first
-    let correctUrl = `https://res.cloudinary.com/den7pp5mf/raw/upload/${version}/library-books/${filename}`;
+    let correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/${version}/library-books/${filename}`;
     
     // Test if URL works
     let urlWorks = false;
@@ -440,7 +440,7 @@ app.get("/api/fix-book-now/:id", async (req, res) => {
     
     // If version URL doesn't work, try without version
     if (!urlWorks) {
-      const simpleUrl = `https://res.cloudinary.com/den7pp5mf/raw/upload/library-books/${filename}`;
+      const simpleUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
       try {
         const testSimple = await fetch(simpleUrl, { method: 'HEAD' });
         if (testSimple.ok) {
@@ -451,6 +451,11 @@ app.get("/api/fix-book-now/:id", async (req, res) => {
       } catch (e) {
         console.log("Simple URL test failed");
       }
+    }
+    
+    // Ensure URL ends with .pdf
+    if (!finalUrl.endsWith('.pdf')) {
+      finalUrl = finalUrl + '.pdf';
     }
     
     // Save the corrected URL
@@ -496,7 +501,7 @@ app.get("/api/fix-book-simple/:id", async (req, res) => {
     const filename = book.pdfFile.split('/').pop();
     
     // Simple URL without version
-    const correctUrl = `https://res.cloudinary.com/den7pp5mf/raw/upload/library-books/${filename}`;
+    const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
     
     const oldValue = book.pdfFile;
     book.pdfFile = correctUrl;
@@ -526,7 +531,7 @@ app.get("/api/fix-all-books", async (req, res) => {
     for (const book of books) {
       if (book.pdfFile && !book.pdfFile.includes('cloudinary.com')) {
         const filename = book.pdfFile.split('/').pop();
-        const correctUrl = `https://res.cloudinary.com/den7pp5mf/raw/upload/library-books/${filename}`;
+        const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
         
         results.push({
           id: book._id,
@@ -550,9 +555,73 @@ app.get("/api/fix-all-books", async (req, res) => {
   }
 });
 
-// --------------------
+// =============================================
+// NEW: ONE-TIME FIX for all books - SIMPLIFIED VERSION
+// =============================================
+app.get("/api/fix-all-pdfs-now", async (req, res) => {
+  try {
+    const Book = (await import("./models/Book.js")).default;
+    const books = await Book.find({});
+    
+    const results = [];
+    let fixed = 0;
+    let skipped = 0;
+    
+    for (const book of books) {
+      if (book.pdfFile && !book.pdfFile.includes('cloudinary.com')) {
+        // Get the filename (remove any path)
+        const filename = book.pdfFile.split('/').pop();
+        
+        // Ensure filename has .pdf extension
+        let cleanFilename = filename;
+        if (!cleanFilename.endsWith('.pdf')) {
+          cleanFilename = cleanFilename + '.pdf';
+        }
+        
+        // Construct the correct Cloudinary URL
+        const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${cleanFilename}`;
+        
+        console.log(`📚 Fixing book: ${book.title}`);
+        console.log(`   Old: ${book.pdfFile}`);
+        console.log(`   New: ${correctUrl}`);
+        
+        results.push({
+          id: book._id,
+          title: book.title,
+          old: book.pdfFile,
+          new: correctUrl
+        });
+        
+        // Update the book
+        book.pdfFile = correctUrl;
+        await book.save();
+        fixed++;
+      } else {
+        skipped++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Fixed ${fixed} books, skipped ${skipped} books`,
+      totalProcessed: books.length,
+      fixed: fixed,
+      skipped: skipped,
+      books: results
+    });
+    
+  } catch (error) {
+    console.error("❌ Fix all error:", error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// =============================================
 // Routes
-// --------------------
+// =============================================
 app.use("/api/auth", authRoutes);
 app.use("/api/books", bookRoutes);
 app.use("/api/borrow", borrowRoutes);
