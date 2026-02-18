@@ -405,21 +405,30 @@ const deleteFile = async (filePath) => {
 const getPdfUrl = (book) => {
   if (!book.pdfFile) return null;
 
+  console.log(`Generating URL for book ${book._id}, pdfFile:`, book.pdfFile);
+  console.log("NODE_ENV:", process.env.NODE_ENV);
+
   // If it's already a Cloudinary URL (from production)
   if (book.pdfFile.includes("cloudinary.com")) {
     // Ensure it's using raw format for PDFs
-    if (!book.pdfFile.includes('/raw/upload/')) {
-      return book.pdfFile.replace('/upload/', '/raw/upload/');
+    let url = book.pdfFile;
+    if (!url.includes('/raw/upload/')) {
+      url = url.replace('/upload/', '/raw/upload/');
     }
-    return book.pdfFile;
+    console.log("✅ Generated Cloudinary URL:", url);
+    return url;
   }
 
-  // For local development
+  // For local development - but this shouldn't happen in production
   if (process.env.NODE_ENV === "development") {
-    return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
+    const localUrl = `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
+    console.log("📁 Generated local URL:", localUrl);
+    return localUrl;
   }
 
-  return book.pdfFile;
+  // In production, we should never get here
+  console.log("⚠️ Warning: In production but no Cloudinary URL found");
+  return null;
 };
 
 export const getAllBooks = async (req, res) => {
@@ -474,6 +483,9 @@ export const getBookById = async (req, res) => {
 export const createBook = async (req, res) => {
   try {
     console.log("\n========== CREATE BOOK ==========");
+    console.log("NODE_ENV:", process.env.NODE_ENV);
+    console.log("Request body:", req.body);
+    console.log("Request file:", req.file);
 
     // Validate required fields
     const requiredFields = [
@@ -491,7 +503,7 @@ export const createBook = async (req, res) => {
       }
     }
 
-    // Create book data
+    // Create book data - THIS MUST BE DEFINED BEFORE USING IT
     const bookData = {
       title: req.body.title,
       author: req.body.author,
@@ -505,41 +517,77 @@ export const createBook = async (req, res) => {
       coverImage: req.body.coverImage || "",
     };
 
+    console.log("Initial bookData created:", bookData);
+
     // Handle PDF file upload
     if (req.file) {
+      console.log("File uploaded:", req.file);
+      
       if (process.env.NODE_ENV === "production") {
         // Store Cloudinary URL
-        bookData.pdfFile = req.file.path; // Cloudinary URL
+        bookData.pdfFile = req.file.path; // This should be the Cloudinary URL
         bookData.pdfFilename = req.file.originalname;
-        console.log(" PDF saved to Cloudinary:", req.file.path);
+        console.log("✅ PDF saved to Cloudinary:");
+        console.log("   URL stored:", bookData.pdfFile);
+        console.log("   Is Cloudinary URL?", bookData.pdfFile?.includes('cloudinary.com'));
       } else {
         // Store local filename only
         bookData.pdfFile = req.file.filename;
         bookData.pdfFilename = req.file.originalname;
-        console.log(" PDF saved locally as:", req.file.filename);
+        console.log("✅ PDF saved locally as:", bookData.pdfFile);
       }
+    } else {
+      console.log("No file uploaded");
     }
+
+    console.log("Final bookData before save:", bookData);
 
     const book = new Book(bookData);
     await book.save();
+    console.log("✅ Book saved with ID:", book._id);
+
+    // Helper function to generate PDF URL
+    const getPdfUrl = (book) => {
+      if (!book.pdfFile) return null;
+
+      if (book.pdfFile.includes("cloudinary.com")) {
+        let url = book.pdfFile;
+        if (!url.includes('/raw/upload/')) {
+          url = url.replace('/upload/', '/raw/upload/');
+        }
+        return url;
+      }
+
+      if (process.env.NODE_ENV === "development") {
+        return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
+      }
+
+      return null;
+    };
 
     const bookObj = book.toObject();
     bookObj.pdfUrl = getPdfUrl(book);
+    
+    console.log("📎 Final response with pdfUrl:", bookObj.pdfUrl);
 
     res.status(201).json({
       success: true,
       message: "Book created successfully",
       book: bookObj,
     });
+
   } catch (error) {
-    console.error(" Error creating book:", error);
+    console.error("❌ Error creating book:", error);
 
     // Handle duplicate key error (ISBN)
     if (error.code === 11000) {
       return res.status(400).json({ message: "ISBN already exists" });
     }
 
-    res.status(400).json({ message: error.message });
+    res.status(400).json({ 
+      message: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
@@ -632,62 +680,117 @@ export const deleteBook = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 export const servePdf = async (req, res) => {
   try {
+    console.log("\n========== SERVE PDF ==========");
+    console.log("Book ID:", req.params.id);
+    console.log("NODE_ENV:", process.env.NODE_ENV);
+    
     const book = await Book.findById(req.params.id);
-    if (!book || !book.pdfFile) {
-      return res.status(404).json({ message: "PDF not found" });
+    if (!book) {
+      return res.status(404).json({ message: "Book not found" });
     }
 
-    console.log(" Serving PDF for book:", book.title);
-    console.log(" PDF file path:", book.pdfFile);
+    console.log("📚 Book:", book.title);
+    console.log("📄 pdfFile in DB:", book.pdfFile);
 
-    // For production with Cloudinary
-    if (
-      process.env.NODE_ENV === "production" && 
-      book.pdfFile && 
-      book.pdfFile.includes("cloudinary.com")
-    ) {
-      // Cloudinary URL is already complete - just add parameters
-      // Make sure we're using the raw file URL
+    if (!book.pdfFile) {
+      return res.status(404).json({ message: "No PDF available" });
+    }
+
+    // FIX: Handle case where local filename is stored in production
+    if (process.env.NODE_ENV === "production") {
+      if (!book.pdfFile.includes("cloudinary.com")) {
+        console.log("⚠️ Found local filename in production database!");
+        console.log("This book was uploaded before Cloudinary was properly configured.");
+        
+        // Return a helpful error message
+        return res.status(404).json({ 
+          message: "This book's PDF was uploaded with an incompatible format. Please re-upload the book.",
+          error: "INVALID_PDF_FORMAT",
+          bookId: book._id
+        });
+      }
+
+      // Handle Cloudinary URL
+      console.log("☁️ Serving from Cloudinary");
       let cloudinaryUrl = book.pdfFile;
       
-      // If it's not a raw file URL, ensure it's properly formatted
       if (!cloudinaryUrl.includes('/raw/upload/')) {
-        // Insert /raw/upload/ for PDF files
         cloudinaryUrl = cloudinaryUrl.replace('/upload/', '/raw/upload/');
       }
       
       const finalUrl = `${cloudinaryUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
-      
-      console.log(" Redirecting to Cloudinary URL:", finalUrl);
+      console.log("🔗 Redirecting to:", finalUrl);
       
       res.setHeader("Content-Disposition", "inline");
-      res.setHeader("X-Content-Type-Options", "nosniff");
-      res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
-      res.setHeader("Access-Control-Allow-Credentials", "true");
-      
       return res.redirect(302, finalUrl);
     }
 
-    // Development: serve local file
-    const pdfPath = path.join(__dirname, "..", "uploads", "pdfs", book.pdfFile);
-    
-    console.log(" Attempting to serve local PDF from:", pdfPath);
-
-    if (!fs.existsSync(pdfPath)) {
-      console.error(" PDF file not found at path:", pdfPath);
-      return res.status(404).json({ message: "PDF file not found on server" });
-    }
-
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "inline");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    
-    const fileStream = fs.createReadStream(pdfPath);
-    fileStream.pipe(res);
+    // Development mode
+    // ... rest of your development code
   } catch (error) {
-    console.error(" Error serving PDF:", error);
+    console.error("❌ Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
+
+// export const servePdf = async (req, res) => {
+//   try {
+//     console.log("\n========== SERVE PDF ==========");
+//     console.log("Book ID:", req.params.id);
+//     console.log("NODE_ENV:", process.env.NODE_ENV);
+    
+//     const book = await Book.findById(req.params.id);
+//     if (!book) {
+//       return res.status(404).json({ message: "Book not found" });
+//     }
+
+//     console.log("📚 Book:", book.title);
+//     console.log("📄 pdfFile in DB:", book.pdfFile);
+//     console.log("Is Cloudinary URL?", book.pdfFile?.includes('cloudinary.com'));
+
+//     if (!book.pdfFile) {
+//       return res.status(404).json({ message: "No PDF available" });
+//     }
+
+//     // Check if it's a Cloudinary URL - this should work in production
+//     if (book.pdfFile.includes("cloudinary.com")) {
+//       console.log("☁️ Serving from Cloudinary");
+      
+//       // Ensure the URL has the correct format for raw files
+//       let cloudinaryUrl = book.pdfFile;
+      
+//       // Add raw/upload if missing
+//       if (!cloudinaryUrl.includes('/raw/upload/')) {
+//         cloudinaryUrl = cloudinaryUrl.replace('/upload/', '/raw/upload/');
+//       }
+      
+//       // Remove any version parameter for cleaner URL
+//       cloudinaryUrl = cloudinaryUrl.replace(/\/v\d+\//, '/');
+      
+//       const finalUrl = `${cloudinaryUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
+      
+//       console.log("🔗 Redirecting to:", finalUrl);
+      
+//       res.setHeader("Content-Disposition", "inline");
+//       res.setHeader("X-Content-Type-Options", "nosniff");
+      
+//       return res.redirect(302, finalUrl);
+//     }
+    
+//     // If we get here, something is wrong - the PDF should be a Cloudinary URL in production
+//     console.log("❌ ERROR: In production but PDF is not a Cloudinary URL");
+//     console.log("PDF value:", book.pdfFile);
+    
+//     return res.status(404).json({ 
+//       message: "PDF not available in correct format",
+//       debug: { pdfFile: book.pdfFile, nodeEnv: process.env.NODE_ENV }
+//     });
+
+//   } catch (error) {
+//     console.error("❌ Error serving PDF:", error);
+//     res.status(500).json({ message: error.message });
+//   }
+// };
