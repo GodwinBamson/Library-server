@@ -1079,14 +1079,12 @@
 
 
 
-
 import Book from "../models/Book.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
-import jwt from "jsonwebtoken";
 
 dotenv.config();
 
@@ -1137,23 +1135,26 @@ const deleteFile = async (filePath) => {
   }
 };
 
-// Helper function to generate PDF URL
+// Helper function to generate PDF URL - FIXED for production
 const getPdfUrl = (book) => {
   if (!book.pdfFile) return null;
 
   // If it's already a Cloudinary URL (from production), use it directly
   if (book.pdfFile.includes("cloudinary.com")) {
     // Remove version parameter to ensure consistent URLs
-    return book.pdfFile.replace(/\/v\d+\//, "/");
+    const cleanUrl = book.pdfFile.replace(/\/v\d+\//, "/");
+    console.log(" Using Cloudinary URL:", cleanUrl);
+    return cleanUrl;
   }
 
-  // For local development with server running
-  if (process.env.NODE_ENV === "development") {
-    return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
+  // For production server, use the Render URL
+  if (process.env.NODE_ENV === "production") {
+    const baseUrl = process.env.API_URL || "https://library-server-5rpq.onrender.com";
+    return `${baseUrl}/api/books/pdf/${book._id}`;
   }
 
-  // For production, use the full URL
-  return `${process.env.API_URL || "https://library-server-5rpq.onrender.com"}/api/books/pdf/${book._id}`;
+  // For local development
+  return `${process.env.BASE_URL || "http://localhost:5000"}/api/books/pdf/${book._id}`;
 };
 
 export const getAllBooks = async (req, res) => {
@@ -1259,6 +1260,8 @@ export const createBook = async (req, res) => {
 
     const bookObj = book.toObject();
     bookObj.pdfUrl = getPdfUrl(book);
+
+    console.log(" Book created with PDF URL:", bookObj.pdfUrl);
 
     res.status(201).json({
       success: true,
@@ -1375,8 +1378,9 @@ export const servePdf = async (req, res) => {
     }
 
     console.log(" Serving PDF for book:", book.title);
+    console.log(" PDF file path:", book.pdfFile);
 
-    // Set CORS headers for PDF
+    // Set CORS headers
     res.setHeader("Access-Control-Allow-Origin", req.headers.origin || "*");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
@@ -1388,23 +1392,22 @@ export const servePdf = async (req, res) => {
       return res.status(200).end();
     }
 
-    // For production with Cloudinary
+    // For production with Cloudinary - redirect to the actual file
     if (process.env.NODE_ENV === "production" && book.pdfFile.includes("cloudinary.com")) {
       const cloudinaryUrl = book.pdfFile.replace(/\/v\d+\//, "/");
       
-      // Add parameters to disable toolbar, download, and print
+      // Add parameters to disable toolbar
       const finalUrl = `${cloudinaryUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
       
-      console.log(" Redirecting to:", finalUrl);
+      console.log(" Redirecting to Cloudinary URL:", finalUrl);
       
-      // Set headers to prevent download
       res.setHeader("Content-Disposition", "inline");
       res.setHeader("X-Content-Type-Options", "nosniff");
       
       return res.redirect(302, finalUrl);
     }
 
-    // Development: serve local file
+    // For local development - serve local file
     const pdfPath = path.join(
       __dirname,
       "..",
@@ -1413,16 +1416,17 @@ export const servePdf = async (req, res) => {
       book.pdfFile,
     );
 
+    console.log(" Looking for PDF at:", pdfPath);
+
     if (!fs.existsSync(pdfPath)) {
+      console.error(" PDF file not found at:", pdfPath);
       return res.status(404).json({ message: "PDF file not found on server" });
     }
 
-    // Set proper headers to disable download/print
+    // Set proper headers
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline");
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.setHeader("Pragma", "no-cache");
-    res.setHeader("Expires", "0");
+    res.setHeader("Cache-Control", "no-cache");
     res.setHeader("X-Content-Type-Options", "nosniff");
 
     const fileStream = fs.createReadStream(pdfPath);

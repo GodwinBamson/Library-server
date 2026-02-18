@@ -168,8 +168,13 @@ connectDB();
 
 const app = express();
 
+// Set API URL for production
+if (process.env.NODE_ENV === "production") {
+  process.env.API_URL = "https://library-server-5rpq.onrender.com";
+}
+
 // --------------------
-// CORS configuration - FIXED
+// CORS configuration
 // --------------------
 const allowedOrigins = [
   "https://frontend-libraryapp.onrender.com",
@@ -178,18 +183,14 @@ const allowedOrigins = [
   "https://library-server-5rpq.onrender.com",
 ];
 
-// More permissive CORS for production
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps, Postman)
     if (!origin) return callback(null, true);
-    
-    // Check if origin is allowed
     if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
       callback(null, true);
     } else {
       console.log(' CORS blocked origin:', origin);
-      callback(null, true); // Temporarily allow all origins for debugging
+      callback(null, true);
     }
   },
   credentials: true,
@@ -199,7 +200,6 @@ app.use(cors({
   exposedHeaders: ["Content-Disposition"],
 }));
 
-// Handle preflight requests
 app.options("*", cors());
 
 // --------------------
@@ -238,7 +238,6 @@ if (process.env.NODE_ENV === "development") {
     console.error(" Upload directory is NOT writable:", err.message);
   }
 
-  // Serve static files
   app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 }
 
@@ -257,11 +256,11 @@ app.get("/health", (req, res) => {
     status: "OK",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV,
+    apiUrl: process.env.API_URL,
     message: "Server is running",
   });
 });
 
-// Test endpoint
 app.get("/api/test", (req, res) => {
   res.json({
     message: "API is working!",
@@ -285,12 +284,10 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log("\n========== SERVER STARTED ==========");
   console.log(` Server running on port ${PORT}`);
   console.log(` Environment: ${process.env.NODE_ENV || "development"}`);
+  console.log(` API URL: ${process.env.API_URL || "http://localhost:5000"}`);
   console.log(
     `🔗 Client URL: ${process.env.CLIENT_URL || "http://localhost:5173"}`,
   );
   console.log(` Allowed origins:`, allowedOrigins);
-  if (process.env.NODE_ENV === "development") {
-    console.log(` Upload directory: ${path.join(__dirname, "uploads/pdfs")}`);
-  }
   console.log("====================================\n");
 });
