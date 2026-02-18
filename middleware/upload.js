@@ -187,8 +187,11 @@ if (isProduction) {
       folder: "library-books",
       resource_type: "raw", // For PDF files
       public_id: (req, file) => {
+        // Use original filename but make it URL-safe
+        const originalName = file.originalname.replace(/\.[^/.]+$/, ""); // Remove extension
+        const safeName = originalName.replace(/[^a-zA-Z0-9]/g, "_");
         const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-        return "pdf-" + uniqueSuffix;
+        return `${safeName}-${uniqueSuffix}`;
       },
       format: 'pdf', // Force PDF format
       access_mode: "public", // Make files publicly accessible
@@ -245,7 +248,7 @@ export const uploadPDF = (req, res, next) => {
 
   const singleUpload = upload.single("pdfFile");
 
-  singleUpload(req, res, (err) => {
+  singleUpload(req, res, async (err) => {
     if (err) {
       console.error("❌ Upload error:", err.message);
       return res.status(400).json({
@@ -262,20 +265,46 @@ export const uploadPDF = (req, res, next) => {
       console.log(`   - Size: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
 
       // ========== CRITICAL FIX FOR PRODUCTION ==========
-      // Cloudinary returns just the path, we need the FULL URL
       if (isProduction) {
         console.log(`   - Raw path from Cloudinary: ${req.file.path}`);
         
-        // Extract the filename from the path
-        let filename = req.file.filename;
+        // CloudinaryStorage returns the URL in req.file.path, but sometimes it's incomplete
+        // Let's construct the full URL manually to be safe
+        const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+        
+        // Get the filename from either:
+        // 1. req.file.filename (if available)
+        // 2. Extract from req.file.path
+        // 3. Generate from original name
+        
+        let filename;
+        
+        if (req.file.filename) {
+          // req.file.filename usually has the format: folder/public_id.format
+          // Extract just the public_id.format part
+          const parts = req.file.filename.split('/');
+          filename = parts[parts.length - 1];
+        } else if (req.file.path) {
+          // Extract from path
+          const parts = req.file.path.split('/');
+          filename = parts[parts.length - 1];
+        } else {
+          // Generate from original name
+          const originalName = req.file.originalname.replace(/\.[^/.]+$/, ""); // Remove extension
+          const safeName = originalName.replace(/[^a-zA-Z0-9]/g, "_");
+          const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+          filename = `${safeName}-${uniqueSuffix}.pdf`;
+        }
         
         // Ensure filename has .pdf extension
-        if (!filename.endsWith('.pdf')) {
+        if (!filename.toLowerCase().endsWith('.pdf')) {
           filename = filename + '.pdf';
         }
         
+        // Clean the filename - remove any invalid characters for URL
+        filename = encodeURIComponent(filename);
+        
         // Construct the FULL Cloudinary URL
-        const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
         const fullUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/library-books/${filename}`;
         
         console.log(`   🔧 Constructed FULL URL: ${fullUrl}`);
@@ -283,6 +312,9 @@ export const uploadPDF = (req, res, next) => {
         // OVERRIDE the path with the full URL
         req.file.path = fullUrl;
         req.file.cloudinaryUrl = fullUrl;
+        
+        // IMPORTANT: Also store the original filename for reference
+        req.file.originalFilename = req.file.originalname;
         
         console.log(`   ✅ Final URL that will be saved: ${req.file.path}`);
       } else {
