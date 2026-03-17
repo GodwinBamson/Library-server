@@ -1616,6 +1616,8 @@
 
 
 
+
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -1624,7 +1626,6 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
 import { createServer } from "http";
-import fetch from "node-fetch";
 
 import connectDB from "./config/db.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
@@ -1718,7 +1719,7 @@ if (process.env.NODE_ENV === "development") {
 }
 
 // =============================================
-// PDF PROXY ENDPOINT - Fix mobile viewing
+// PDF PROXY ENDPOINT - Simplified for mobile
 // =============================================
 app.get("/api/pdf-proxy/:bookId", async (req, res) => {
   try {
@@ -1730,49 +1731,34 @@ app.get("/api/pdf-proxy/:bookId", async (req, res) => {
     }
 
     const pdfUrl = book.pdfFile;
-    console.log(`📱 Proxying PDF for mobile: ${pdfUrl}`);
-
-    // Set proper headers for mobile PDF viewing
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(book.title)}.pdf"`);
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    console.log(`📱 Mobile PDF request for: ${book.title}`);
     
-    try {
-      // Fetch PDF from Cloudinary
-      const response = await fetch(pdfUrl, {
-        headers: {
-          'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
-          'Accept': 'application/pdf'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch PDF: ${response.status}`);
-      }
-      
-      // Get the PDF data as a buffer
-      const pdfBuffer = await response.arrayBuffer();
-      
-      // Send the PDF with proper headers
-      res.send(Buffer.from(pdfBuffer));
-      
-    } catch (fetchError) {
-      console.error('Error fetching PDF from Cloudinary:', fetchError);
-      
-      // Fallback: redirect to Cloudinary URL with mobile-friendly parameters
-      const mobileFriendlyUrl = pdfUrl.includes('?') 
-        ? `${pdfUrl}&fl_attachment=false#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
-        : `${pdfUrl}?fl_attachment=false#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
-      
-      res.redirect(mobileFriendlyUrl);
-    }
+    // Create mobile-friendly URL with proper parameters
+    const mobileFriendlyUrl = pdfUrl.includes('?') 
+      ? `${pdfUrl}&fl_attachment=false#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
+      : `${pdfUrl}?fl_attachment=false#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
+    
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(book.title)}.pdf"`);
+    
+    // Redirect to the mobile-friendly URL
+    res.redirect(mobileFriendlyUrl);
     
   } catch (error) {
     console.error('PDF proxy error:', error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// OPTIONS handler for CORS preflight
+app.options("/api/pdf-proxy/:bookId", (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(200).end();
 });
 
 // =============================================
@@ -1787,12 +1773,12 @@ app.get("/api/mobile-pdf/:bookId", async (req, res) => {
       return res.status(404).json({ error: "PDF not found" });
     }
 
-    // Add mobile-friendly parameters to Cloudinary URL
     const pdfUrl = book.pdfFile;
     const mobileUrl = pdfUrl.includes('?') 
       ? `${pdfUrl}&fl_attachment=false#toolbar=0&navpanes=0&scrollbar=0&view=FitH`
       : `${pdfUrl}?fl_attachment=false#toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
     
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.redirect(mobileUrl);
     
   } catch (error) {
@@ -1814,32 +1800,11 @@ app.get("/api/test-pdf-url/:bookId", async (req, res) => {
     
     const pdfUrl = book.pdfFile || book.pdfUrl;
     
-    // Test if URL is accessible
-    let urlStatus = 'unknown';
-    let urlError = null;
-    let urlHeaders = null;
-    
-    try {
-      const testResponse = await fetch(pdfUrl, { 
-        method: 'HEAD',
-        headers: {
-          'User-Agent': req.headers['user-agent']
-        }
-      });
-      urlStatus = testResponse.status;
-      urlHeaders = Object.fromEntries(testResponse.headers);
-    } catch (e) {
-      urlError = e.message;
-    }
-    
     res.json({
       bookId: book._id,
       title: book.title,
       pdfUrl: pdfUrl,
       pdfFilename: book.pdfFilename,
-      urlStatus: urlStatus,
-      urlError: urlError,
-      urlHeaders: urlHeaders,
       isCloudinary: pdfUrl?.includes('cloudinary.com'),
       isTruncated: pdfUrl?.includes('library-...') || pdfUrl?.endsWith('library-'),
       userAgent: req.headers['user-agent'],
@@ -1867,13 +1832,11 @@ app.get("/api/fix-all-pdf-urls", async (req, res) => {
 
     for (const book of books) {
       if (book.pdfFile) {
-        // Check if URL is truncated or malformed
         if (book.pdfFile.includes('cloudinary.com') && 
             (book.pdfFile.includes('library-...') || 
              book.pdfFile.endsWith('library-') ||
              !book.pdfFile.includes('/raw/upload/'))) {
           
-          // Extract filename from pdfFilename or reconstruct
           let filename = book.pdfFilename;
           
           if (!filename && book.pdfFile) {
@@ -1883,18 +1846,12 @@ app.get("/api/fix-all-pdf-urls", async (req, res) => {
           }
           
           if (filename) {
-            // Clean filename
             filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
             if (!filename.toLowerCase().endsWith('.pdf')) {
               filename += '.pdf';
             }
             
-            // Construct proper URL
             const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
-            
-            console.log(`Fixing: ${book.title}`);
-            console.log(`Old: ${book.pdfFile}`);
-            console.log(`New: ${correctUrl}`);
             
             book.pdfFile = correctUrl;
             await book.save();
@@ -2044,5 +2001,4 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(` Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? "✅" : "❌"}`);
   console.log("====================================\n");
 });
-
 
