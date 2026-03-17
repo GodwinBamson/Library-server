@@ -28,102 +28,48 @@ const isProduction = process.env.NODE_ENV === "production" || true;
 // Determine storage based on environment
 let storage;
 
-// if (isProduction) {
-//   console.log("✅ USING CLOUDINARY STORAGE FOR PRODUCTION");
-
-//   // Cloudinary storage for production
-//   storage = new CloudinaryStorage({
-//     cloudinary: cloudinary,
-//     params: {
-//       folder: "library-books",
-//       resource_type: "raw", // For PDF files
-//       public_id: (req, file) => {
-//         // Use original filename but make it URL-safe
-//         const originalName = file.originalname.replace(/\.[^/.]+$/, ""); // Remove extension
-//         const safeName = originalName.replace(/[^a-zA-Z0-9]/g, "_");
-//         const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-//         return `${safeName}-${uniqueSuffix}`;
-//       },
-//       format: "pdf", // Force PDF format
-//       access_mode: "public", // Make files publicly accessible
-//     },
-//   });
-// } else {
-//   console.log("⚠️ USING LOCAL STORAGE FOR DEVELOPMENT");
-
-//   // Local storage for development
-//   const uploadDir = path.join(__dirname, "../uploads/pdfs");
-
-//   // Ensure directory exists
-//   if (!fs.existsSync(uploadDir)) {
-//     fs.mkdirSync(uploadDir, { recursive: true });
-//     console.log(" Created local upload directory");
-//   }
-
-//   storage = multer.diskStorage({
-//     destination: (req, file, cb) => {
-//       cb(null, uploadDir);
-//     },
-//     filename: (req, file, cb) => {
-//       const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-//       const filename = "pdf-" + uniqueSuffix + ".pdf";
-//       cb(null, filename);
-//     },
-//   });
-// }
-
-// In upload.js, update the production section:
-
 if (isProduction) {
-  console.log(`   - Raw path from Cloudinary: ${req.file.path}`);
+  console.log("✅ USING CLOUDINARY STORAGE FOR PRODUCTION");
 
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-  
-  // Get the filename from multiple possible sources
-  let filename;
-  
-  if (req.file.filename) {
-    // CloudinaryStorage usually sets filename
-    filename = req.file.filename;
-    // If it contains folder path, extract just the filename
-    if (filename.includes('/')) {
-      filename = filename.split('/').pop();
-    }
-  } else if (req.file.path) {
-    // Extract from path
-    const parts = req.file.path.split('/');
-    filename = parts[parts.length - 1];
-    // Remove any query parameters
-    filename = filename.split('?')[0];
+  // Cloudinary storage for production
+  storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: {
+      folder: "library-books",
+      resource_type: "raw", // For PDF files
+      public_id: (req, file) => {
+        // Use original filename but make it URL-safe
+        const originalName = file.originalname.replace(/\.[^/.]+$/, ""); // Remove extension
+        const safeName = originalName.replace(/[^a-zA-Z0-9]/g, "_");
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        return `${safeName}-${uniqueSuffix}`;
+      },
+      format: "pdf", // Force PDF format
+      access_mode: "public", // Make files publicly accessible
+    },
+  });
+} else {
+  console.log("⚠️ USING LOCAL STORAGE FOR DEVELOPMENT");
+
+  // Local storage for development
+  const uploadDir = path.join(__dirname, "../uploads/pdfs");
+
+  // Ensure directory exists
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    console.log(" Created local upload directory");
   }
-  
-  if (!filename) {
-    // Fallback: generate from original name
-    const originalName = req.file.originalname.replace(/\.[^/.]+$/, "");
-    const safeName = originalName.replace(/[^a-zA-Z0-9]/g, "_");
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    filename = `${safeName}-${uniqueSuffix}.pdf`;
-  }
-  
-  // Ensure .pdf extension
-  if (!filename.toLowerCase().endsWith('.pdf')) {
-    filename = filename + '.pdf';
-  }
-  
-  // URL-encode the filename
-  const encodedFilename = encodeURIComponent(filename);
-  
-  // Construct the FULL Cloudinary URL
-  const fullUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/library-books/${encodedFilename}`;
-  
-  console.log(`   🔧 Constructed FULL URL: ${fullUrl}`);
-  
-  // Set the path to the full URL
-  req.file.path = fullUrl;
-  req.file.cloudinaryUrl = fullUrl;
-  req.file.filename = filename; // Store clean filename
-  
-  console.log(`   ✅ Final URL: ${req.file.path}`);
+
+  storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      const filename = "pdf-" + uniqueSuffix + ".pdf";
+      cb(null, filename);
+    },
+  });
 }
 
 console.log("==========================================\n");
