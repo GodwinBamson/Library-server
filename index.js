@@ -1494,36 +1494,106 @@ app.get("/api/fix-book-simple/:id", async (req, res) => {
 });
 
 // Bulk fix all books (legacy endpoint)
-app.get("/api/fix-all-books", async (req, res) => {
+// app.get("/api/fix-all-books", async (req, res) => {
+//   try {
+//     const Book = (await import("./models/Book.js")).default;
+//     const books = await Book.find({});
+
+//     const results = [];
+
+//     for (const book of books) {
+//       if (book.pdfFile && !book.pdfFile.includes("cloudinary.com")) {
+//         let filename = book.pdfFile;
+//         if (filename.includes("/")) {
+//           filename = filename.split("/").pop();
+//         }
+//         const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
+
+//         results.push({
+//           id: book._id,
+//           title: book.title,
+//           old: book.pdfFile,
+//           new: correctUrl,
+//         });
+
+//         book.pdfFile = correctUrl;
+//         await book.save();
+//       }
+//     }
+
+//     res.json({
+//       message: `Fixed ${results.length} books`,
+//       books: results,
+//     });
+//   } catch (error) {
+//     res.status(500).json({ error: error.message });
+//   }
+// });
+
+
+// =============================================
+// FIX PDF URLS - Run this once
+// =============================================
+app.get("/api/fix-all-pdf-urls", async (req, res) => {
   try {
     const Book = (await import("./models/Book.js")).default;
     const books = await Book.find({});
-
+    
+    let fixed = 0;
     const results = [];
 
     for (const book of books) {
-      if (book.pdfFile && !book.pdfFile.includes("cloudinary.com")) {
-        let filename = book.pdfFile;
-        if (filename.includes("/")) {
-          filename = filename.split("/").pop();
+      if (book.pdfFile) {
+        // Check if URL is truncated or malformed
+        if (book.pdfFile.includes('cloudinary.com') && 
+            (book.pdfFile.includes('library-...') || 
+             book.pdfFile.endsWith('library-') ||
+             !book.pdfFile.includes('/raw/upload/'))) {
+          
+          // Extract filename from pdfFilename or reconstruct
+          let filename = book.pdfFilename;
+          
+          if (!filename && book.pdfFile) {
+            // Try to extract from existing URL
+            const parts = book.pdfFile.split('/');
+            filename = parts[parts.length - 1];
+            // Remove any query params
+            filename = filename.split('?')[0];
+          }
+          
+          if (filename) {
+            // Clean filename
+            filename = filename.replace(/[^a-zA-Z0-9-_.() ]/g, '');
+            if (!filename.toLowerCase().endsWith('.pdf')) {
+              filename += '.pdf';
+            }
+            
+            // Construct proper URL
+            const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${encodeURIComponent(filename)}`;
+            
+            console.log(`Fixing: ${book.title}`);
+            console.log(`Old: ${book.pdfFile}`);
+            console.log(`New: ${correctUrl}`);
+            
+            book.pdfFile = correctUrl;
+            await book.save();
+            fixed++;
+            
+            results.push({
+              id: book._id,
+              title: book.title,
+              old: book.pdfFile,
+              new: correctUrl
+            });
+          }
         }
-        const correctUrl = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/raw/upload/library-books/${filename}`;
-
-        results.push({
-          id: book._id,
-          title: book.title,
-          old: book.pdfFile,
-          new: correctUrl,
-        });
-
-        book.pdfFile = correctUrl;
-        await book.save();
       }
     }
-
+    
     res.json({
-      message: `Fixed ${results.length} books`,
-      books: results,
+      success: true,
+      message: `Fixed ${fixed} books`,
+      results
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
