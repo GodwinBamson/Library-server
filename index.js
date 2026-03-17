@@ -1625,7 +1625,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { v2 as cloudinary } from "cloudinary";
-import { createServer } from "http";
+import { createServer } from "http"; // ADD THIS for Socket.IO
 
 import connectDB from "./config/db.js";
 import { notFound, errorHandler } from "./middleware/errorMiddleware.js";
@@ -1633,7 +1633,7 @@ import authRoutes from "./routes/authRoutes.js";
 import bookRoutes from "./routes/bookRoutes.js";
 import borrowRoutes from "./routes/borrowRoutes.js";
 import { uploadPDF } from "./middleware/upload.js";
-import { setupSocketIO } from "./server/socket.js";
+import { setupSocketIO } from "./server/socket.js"; // ADD THIS for chatting
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1642,9 +1642,9 @@ dotenv.config();
 connectDB();
 
 const app = express();
-const httpServer = createServer(app);
+const httpServer = createServer(app); // CREATE HTTP SERVER for Socket.IO
 
-// Setup Socket.IO
+// Setup Socket.IO for chatting
 const io = setupSocketIO(httpServer);
 app.set("io", io);
 
@@ -1663,9 +1663,9 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5000",
   "https://library-server-5rpq.onrender.com",
-  "https://docs.google.com",
-  "https://www.google.com",
-  "https://drive.google.com"
+  "https://docs.google.com", // For PDF viewer
+  "https://www.google.com",   // For PDF viewer
+  "https://drive.google.com"  // For PDF viewer
 ];
 
 app.use(
@@ -1827,6 +1827,36 @@ app.post("/api/test-upload", uploadPDF, (req, res) => {
   }
 });
 
+// Debug single book
+app.get("/api/debug-book/:id", async (req, res) => {
+  try {
+    const Book = (await import("./models/Book.js")).default;
+    const book = await Book.findById(req.params.id);
+
+    if (!book) {
+      return res.status(404).json({ error: "Book not found" });
+    }
+
+    res.json({
+      id: book._id,
+      title: book.title,
+      author: book.author,
+      pdfFile: book.pdfFile,
+      pdfFilename: book.pdfFilename,
+      pdfFileType: typeof book.pdfFile,
+      isCloudinaryUrl: book.pdfFile?.includes("cloudinary.com"),
+      isLocalFile: book.pdfFile && !book.pdfFile.includes("cloudinary.com"),
+      needsFixing: book.pdfFile && !book.pdfFile.includes("cloudinary.com"),
+      isTruncated:
+        book.pdfFile?.includes("library-...") ||
+        book.pdfFile?.endsWith("library-"),
+      mobileViewer: `/api/view-pdf/${book._id}`, // Add mobile viewer link
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // =============================================
 // FIX TRUNCATED PDF URLS
 // =============================================
@@ -1938,7 +1968,7 @@ app.get("/api/fix-truncated-pdfs", async (req, res) => {
 });
 
 // =============================================
-// FIX SPECIFIC BOOK (ID: 6995acba7dbadada4f13a584)
+// FIX THE SPECIFIC BOOK YOU MENTIONED
 // =============================================
 app.get("/api/fix-paul-book", async (req, res) => {
   try {
@@ -2328,73 +2358,11 @@ app.get("/api/fix-all-books", async (req, res) => {
 });
 
 // =============================================
-// MOBILE PDF VIEWING FIXES
+// MOBILE PDF VIEWING FIX - SIMPLE VERSION
+// This replicates what worked before
 // =============================================
 
-// Fix PDF URLs for mobile compatibility
-app.get("/api/fix-mobile-pdfs", async (req, res) => {
-  try {
-    const Book = (await import("./models/Book.js")).default;
-    const books = await Book.find({});
-
-    const results = [];
-    let fixed = 0;
-    let skipped = 0;
-
-    for (const book of books) {
-      if (book.pdfFile && book.pdfFile.includes("cloudinary.com")) {
-        // Add mobile-friendly parameters to URL
-        let updatedUrl = book.pdfFile;
-        
-        // Remove any existing parameters
-        if (updatedUrl.includes('?')) {
-          updatedUrl = updatedUrl.split('?')[0];
-        }
-        
-        // Add mobile-optimized parameters
-        // flags: fl_attachment - forces download instead of preview
-        // We want preview, so we'll use different parameters
-        const mobileParams = new URLSearchParams({
-          fl_notice: '1', // Show notice
-          fl_attachment: '0', // Don't force download
-          fl_force: '1', // Force render
-          fl_lang: 'en'
-        });
-        
-        updatedUrl = `${updatedUrl}?${mobileParams.toString()}`;
-        
-        // Also update the pdfFilename if needed
-        if (book.pdfFilename) {
-          // Ensure filename is URL-safe
-          book.pdfFilename = encodeURIComponent(book.pdfFilename);
-        }
-        
-        book.pdfFile = updatedUrl;
-        await book.save();
-        
-        results.push({
-          id: book._id,
-          title: book.title,
-          old: book.pdfFile,
-          new: updatedUrl
-        });
-        fixed++;
-      } else {
-        skipped++;
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Fixed ${fixed} books for mobile viewing, skipped ${skipped}`,
-      books: results
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Alternative PDF viewing endpoint that works better on mobile
+// Mobile-friendly PDF viewer
 app.get("/api/view-pdf/:id", async (req, res) => {
   try {
     const Book = (await import("./models/Book.js")).default;
@@ -2407,220 +2375,47 @@ app.get("/api/view-pdf/:id", async (req, res) => {
     // Get the Cloudinary URL
     let pdfUrl = book.pdfFile;
     
-    // Clean up the URL
-    if (pdfUrl.includes('?')) {
-      pdfUrl = pdfUrl.split('?')[0];
-    }
-
-    // Add mobile-friendly parameters
-    const params = new URLSearchParams({
-      fl_notice: '1',
-      fl_attachment: '0',
-      fl_force: '1',
-      fl_lang: 'en',
-      resource_type: 'raw'
-    });
-
-    pdfUrl = `${pdfUrl}?${params.toString()}`;
-
-    // Return HTML with embedded PDF viewer that works better on mobile
+    // Simple HTML viewer that worked before
     const html = `
       <!DOCTYPE html>
       <html>
       <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>${book.title} - PDF Viewer</title>
         <style>
-          * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: #1a1a1a;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-          }
-          .header {
-            background: #2d2d2d;
-            color: white;
-            padding: 12px 16px;
-            display: flex;
+          body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; }
+          .toolbar { 
+            background: #f0f0f0; 
+            padding: 10px; 
+            display: flex; 
             align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid #404040;
+            border-bottom: 1px solid #ddd;
           }
-          .header h1 {
-            font-size: 1.1rem;
-            font-weight: 500;
-            flex: 1;
-            margin: 0 12px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          .back-btn {
-            background: #3d3d3d;
-            border: none;
-            color: white;
-            font-size: 1.5rem;
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-decoration: none;
+          .toolbar button { 
+            padding: 8px 16px; 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
             cursor: pointer;
+            margin-right: 10px;
           }
-          .back-btn:hover {
-            background: #4d4d4d;
-          }
-          .download-btn {
-            background: #3d3d3d;
-            border: none;
-            color: white;
-            font-size: 1.2rem;
-            width: 40px;
-            height: 40px;
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-decoration: none;
-            cursor: pointer;
-          }
-          .download-btn:hover {
-            background: #4d4d4d;
-          }
-          .pdf-container {
-            flex: 1;
-            background: #0a0a0a;
-            position: relative;
-            overflow: hidden;
-          }
-          #pdf-frame {
-            width: 100%;
-            height: 100%;
-            border: none;
-            background: white;
-          }
-          .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #666;
-            font-size: 1rem;
-          }
-          .error-message {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #ff6b6b;
-            text-align: center;
-            padding: 20px;
-            background: #2d2d2d;
-            border-radius: 12px;
-            display: none;
-          }
-          .error-message.show {
-            display: block;
-          }
-          .error-message p {
-            margin: 10px 0;
-          }
-          .retry-btn {
-            background: #4a90e2;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            font-size: 1rem;
-            cursor: pointer;
-            margin-top: 15px;
-          }
-          .retry-btn:hover {
-            background: #357abd;
-          }
-          @media (max-width: 768px) {
-            .header {
-              padding: 8px 12px;
-            }
-            .header h1 {
-              font-size: 1rem;
-            }
-          }
+          .toolbar span { flex: 1; font-weight: bold; }
+          .pdf-container { flex: 1; }
+          .pdf-viewer { width: 100%; height: 100%; border: none; }
         </style>
       </head>
       <body>
-        <div class="header">
-          <button class="back-btn" onclick="goBack()">←</button>
-          <h1>${book.title}</h1>
-          <a href="${pdfUrl}" download="${book.pdfFilename || 'book.pdf'}" class="download-btn">↓</a>
+        <div class="toolbar">
+          <button onclick="goBack()">← Back</button>
+          <span>${book.title}</span>
+          <a href="${pdfUrl}" download="${book.pdfFilename || 'book.pdf'}" style="text-decoration: none; padding: 8px 16px; background: #28a745; color: white; border-radius: 4px;">Download</a>
         </div>
         <div class="pdf-container">
-          <div class="loading">Loading PDF...</div>
-          <div class="error-message" id="error-message">
-            <p>⚠️ Failed to load PDF</p>
-            <p>Try downloading instead</p>
-            <button class="retry-btn" onclick="retryLoad()">Retry</button>
-          </div>
-          <iframe id="pdf-frame" src="" allowfullscreen></iframe>
+          <iframe class="pdf-viewer" src="${pdfUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH" allowfullscreen></iframe>
         </div>
-
         <script>
-          const pdfUrl = '${pdfUrl}';
-          const frame = document.getElementById('pdf-frame');
-          const loading = document.querySelector('.loading');
-          const errorMsg = document.getElementById('error-message');
-          
-          // Try different PDF viewers based on device
-          function loadPDF() {
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
-            
-            let viewerUrl;
-            
-            if (isIOS) {
-              // iOS works better with direct URL
-              viewerUrl = pdfUrl;
-            } else if (isMobile) {
-              // Android works better with Google Viewer
-              viewerUrl = 'https://docs.google.com/viewer?url=' + encodeURIComponent(pdfUrl) + '&embedded=true';
-            } else {
-              // Desktop - use browser's built-in viewer
-              viewerUrl = pdfUrl;
-            }
-            
-            frame.src = viewerUrl;
-          }
-          
-          // Handle load events
-          frame.onload = function() {
-            loading.style.display = 'none';
-          };
-          
-          frame.onerror = function() {
-            loading.style.display = 'none';
-            errorMsg.classList.add('show');
-          };
-          
-          // Retry function
-          function retryLoad() {
-            loading.style.display = 'block';
-            errorMsg.classList.remove('show');
-            
-            // Try alternative viewer
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            if (isMobile) {
-              frame.src = pdfUrl;
-            } else {
-              frame.src = 'https://docs.google.com/viewer?url=' + encodeURIComponent(pdfUrl) + '&embedded=true';
-            }
-          }
-          
-          // Go back function
           function goBack() {
             if (document.referrer) {
               window.location.href = document.referrer;
@@ -2628,17 +2423,6 @@ app.get("/api/view-pdf/:id", async (req, res) => {
               window.history.back();
             }
           }
-          
-          // Start loading
-          loadPDF();
-          
-          // Set timeout for error
-          setTimeout(() => {
-            if (loading.style.display !== 'none') {
-              loading.style.display = 'none';
-              errorMsg.classList.add('show');
-            }
-          }, 10000);
         </script>
       </body>
       </html>
@@ -2650,7 +2434,7 @@ app.get("/api/view-pdf/:id", async (req, res) => {
   }
 });
 
-// Simple redirect endpoint for mobile
+// Simple redirect for mobile
 app.get("/api/redirect-pdf/:id", async (req, res) => {
   try {
     const Book = (await import("./models/Book.js")).default;
@@ -2660,82 +2444,15 @@ app.get("/api/redirect-pdf/:id", async (req, res) => {
       return res.status(404).json({ error: "Book or PDF not found" });
     }
 
-    let pdfUrl = book.pdfFile;
-    
-    // Clean URL
-    if (pdfUrl.includes('?')) {
-      pdfUrl = pdfUrl.split('?')[0];
-    }
-
-    // Add mobile-friendly parameters
-    const params = new URLSearchParams({
-      fl_notice: '1',
-      fl_attachment: '0',
-      fl_force: '1',
-      fl_lang: 'en'
-    });
-
-    pdfUrl = `${pdfUrl}?${params.toString()}`;
-
-    // Redirect to the PDF
-    res.redirect(pdfUrl);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Enhanced debug book endpoint with mobile info
-app.get("/api/debug-book/:id", async (req, res) => {
-  try {
-    const Book = (await import("./models/Book.js")).default;
-    const book = await Book.findById(req.params.id);
-
-    if (!book) {
-      return res.status(404).json({ error: "Book not found" });
-    }
-
-    // Test if URL works
-    let urlWorks = false;
-    let urlStatus = 'unknown';
-    try {
-      const testResponse = await fetch(book.pdfFile, { method: "HEAD" });
-      urlWorks = testResponse.ok;
-      urlStatus = testResponse.status;
-    } catch (e) {
-      console.log("URL test failed:", e.message);
-    }
-
-    res.json({
-      id: book._id,
-      title: book.title,
-      author: book.author,
-      pdfFile: book.pdfFile,
-      pdfFilename: book.pdfFilename,
-      pdfFileType: typeof book.pdfFile,
-      isCloudinaryUrl: book.pdfFile?.includes("cloudinary.com"),
-      isLocalFile: book.pdfFile && !book.pdfFile.includes("cloudinary.com"),
-      needsFixing: book.pdfFile && !book.pdfFile.includes("cloudinary.com"),
-      isTruncated: book.pdfFile?.includes("library-...") || book.pdfFile?.endsWith("library-"),
-      urlWorks: urlWorks,
-      urlStatus: urlStatus,
-      mobileViewer: `/api/view-pdf/${book._id}`,
-      mobileRedirect: `/api/redirect-pdf/${book._id}`,
-      googleViewer: `https://docs.google.com/viewer?url=${encodeURIComponent(book.pdfFile)}&embedded=true`,
-      suggestions: [
-        !urlWorks && "❌ PDF URL is not accessible",
-        !book.pdfFile?.includes("cloudinary.com") && "⚠️ Not using Cloudinary",
-        book.pdfFile?.includes("library-...") && "⚠️ URL is truncated",
-        "Try: /api/view-pdf/" + book._id + " for mobile-friendly viewer",
-        "Try: /api/redirect-pdf/" + book._id + " for direct redirect"
-      ].filter(Boolean)
-    });
+    // Redirect directly to the PDF
+    res.redirect(book.pdfFile);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // =============================================
-// SOCKET.IO STATUS ENDPOINT
+// SOCKET.IO STATUS ENDPOINT (for chatting)
 // =============================================
 app.get("/api/socket-status", (req, res) => {
   const connectedSockets = io.engine?.clientsCount || 0;
@@ -2744,9 +2461,6 @@ app.get("/api/socket-status", (req, res) => {
     success: true,
     message: "Socket.IO server is running",
     connectedClients: connectedSockets,
-    activeUsers: io.getActiveUsers?.()?.length || 0,
-    activeRooms: io.getActiveRooms?.()?.length || 0,
-    availableStaff: io.getAvailableStaff?.()?.length || 0,
     timestamp: new Date().toISOString()
   });
 });
@@ -2789,7 +2503,7 @@ app.use(notFound);
 app.use(errorHandler);
 
 // --------------------
-// Start server
+// Start server - USE httpServer INSTEAD OF app.listen
 // --------------------
 const PORT = process.env.PORT || 5000;
 
@@ -2812,6 +2526,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
     `🔗 Client URL: ${process.env.CLIENT_URL || "http://localhost:5173"}`,
   );
   console.log(` Allowed origins:`, allowedOrigins);
+  console.log(` Mobile PDF Viewer: ✅ Available at /api/view-pdf/:id`);
   if (process.env.NODE_ENV === "development") {
     console.log(` Upload directory: ${path.join(__dirname, "uploads/pdfs")}`);
   }
