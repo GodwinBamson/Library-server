@@ -2017,6 +2017,44 @@ app.get("/api/test", (req, res) => {
   });
 });
 
+
+// =============================================
+// TEST DIRECT PDF ACCESS
+// =============================================
+app.get("/api/test-direct/:bookId", async (req, res) => {
+  try {
+    const Book = (await import("./models/Book.js")).default;
+    const book = await Book.findById(req.params.bookId);
+    
+    if (!book || !book.pdfFile) {
+      return res.status(404).json({ error: "PDF not found" });
+    }
+
+    console.log(`🧪 Test direct access for: ${book.title}`);
+    console.log(`URL: ${book.pdfFile}`);
+    
+    // Set headers for PDF viewing
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(book.title)}.pdf"`);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    
+    // Redirect to the direct URL
+    res.redirect(book.pdfFile);
+    
+  } catch (error) {
+    console.error('Test direct error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// OPTIONS handler
+app.options("/api/test-direct/:bookId", (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.status(200).end();
+});
+
 // --------------------
 // Error handling
 // --------------------
